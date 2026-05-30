@@ -1,0 +1,221 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id            String       @id @default(cuid())
+  name          String?
+  email         String?      @unique
+  emailVerified DateTime?
+  image         String?
+  isSuperAdmin  Boolean      @default(false)
+  accounts      Account[]
+  sessions      Session[]
+  clientUsers   ClientUser[]
+}
+
+model Client {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  slug        String       @unique
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  users       ClientUser[]
+  projects    Project[]
+}
+
+model ClientUser {
+  clientId String
+  userId   String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([clientId, userId])
+}
+
+model Project {
+  id            String        @id @default(cuid())
+  name          String
+  slug          String        @default("")
+  clientId      String
+
+  ga4PropertyId String        @default("")
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  client        Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  events        Event[]
+  parameters    Parameter[]
+  dataLayerDoc  DataLayerDoc?
+
+  @@unique([clientId, name])
+  @@unique([clientId, slug])
+}
+
+model Event {
+  id                String   @id @default(cuid())
+  name              String
+  projectId         String
+  category          String   @default("")
+  trigger           String   @default("")
+  requiresDataLayer Boolean  @default(false)
+  isKeyEvent        Boolean  @default(false)
+  checkDocumented   Boolean  @default(false)
+  checkDataLayerDoc Boolean  @default(false)
+  checkGtmSetUp     Boolean  @default(false)
+  checkGtmPasses    Boolean  @default(false)
+  checkGa4KeyEvent  Boolean   @default(false)
+  notes             String    @default("")
+  ga4FireCount      Int?                       // null = never checked; 0 = checked, not fired
+  ga4CheckedAt      DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  project           Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parameters        EventParameter[]
+  dataLayerSection  DataLayerSection?
+}
+
+model Parameter {
+  id                      String   @id @default(cuid())
+  name                    String
+  projectId               String
+  description             String   @default("")
+  example                 String   @default("")
+  type                    String   @default("string")
+  isGlobal                Boolean  @default(false)
+  requiresGA4Registration Boolean  @default(false)
+  ga4Registered           Boolean  @default(false)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  project                 Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  events                  EventParameter[]
+
+  @@unique([projectId, name])
+}
+
+model EventParameter {
+  eventId     String
+  parameterId String
+  value       String    @default("dynamic")   // "dynamic" or a constant pushed value
+  event       Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  parameter   Parameter @relation(fields: [parameterId], references: [id], onDelete: Cascade)
+
+  @@id([eventId, parameterId])
+  @@unique([eventId, parameterId])
+}
+
+model Setting {
+  key   String @id
+  value String
+}
+
+// ─── DataLayer Documentation ──────────────────────────────────────────────────
+
+model DataLayerDoc {
+  id              String             @id @default(cuid())
+  projectId       String             @unique
+  gtmContainerId  String             @default("")
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  project   Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sections  DataLayerSection[]
+}
+
+model DataLayerSection {
+  id                  String                @id @default(cuid())
+  docId               String
+  eventId             String                @unique
+  order               Int                   @default(0)
+  codeBlock           String                @default("")
+  codeBlockCustomised Boolean               @default(false)
+  ecommerceJson       String                @default("")
+  testUrl             String                @default("")
+  isDone              Boolean               @default(false)
+  isTested            Boolean               @default(false)
+  testResult          String?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  doc                 DataLayerDoc          @relation(fields: [docId], references: [id], onDelete: Cascade)
+  event               Event                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  comments            DataLayerComment[]
+  screenshots         DataLayerScreenshot[]
+  paramNotes          DataLayerParamNote[]
+  ecommerceNotes      DataLayerEcommerceNote[]
+}
+
+model DataLayerComment {
+  id        String           @id @default(cuid())
+  sectionId String
+  body      String
+  createdAt DateTime         @default(now())
+  section   DataLayerSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+}
+
+model DataLayerScreenshot {
+  id        String           @id @default(cuid())
+  sectionId String
+  filename  String
+  dataUrl   String
+  context   String           @default("test")  // "trigger" | "test"
+  createdAt DateTime         @default(now())
+  section   DataLayerSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+}
+
+model DataLayerEcommerceNote {
+  id        String           @id @default(cuid())
+  sectionId String
+  fieldPath String           // "currency", "items.item_id", etc.
+  notes     String           @default("")
+  section   DataLayerSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@unique([sectionId, fieldPath])
+}
+
+model DataLayerParamNote {
+  id        String           @id @default(cuid())
+  sectionId String
+  paramName String
+  example   String           @default("")
+  notes     String           @default("")
+  section   DataLayerSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@unique([sectionId, paramName])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}

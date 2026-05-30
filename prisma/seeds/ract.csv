@@ -1,0 +1,77 @@
+,,RACT - Event Naming,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Import to GA4,,,,,,,,,,,,,,,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE
+Has been imported,,,,,,,,,,,,,,,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE
+need to be added to GTM,,,,,,,,,,,,,,,TRUE,TRUE,TRUE,TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,TRUE,FALSE,TRUE,TRUE,TRUE,TRUE,TRUE,TRUE
+Description,Trigger,Set-up,Default tracking,"Doc
+Done","GTM
+Work
+Done","Dev
+Work
+Done","Work
+Check","Work
+Pass",Key event,Key event set in GA4,"custom
+built in","developer
+input
+needed",Testing Notes,Event name,name,type,txt_value,search_term,percentage_scrolled,web_vitals_measurement_id,web_vitals_measurement_value,web_vitals_value,video_current_time,video_duration,video_percent,video_provider,video_title,video_url,visible,file_extension,file_name,link_classes,link_domain,link_id,link_text,link_url,outbound,timestamp,GTM_ID
+config tag,All pages,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,NA,NA,,NA,,,,,,,,,,,,,,,,,,,,,,,,timestamp,GTM_ID
+Page view,All pages,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,no,,page_view,,,,,,,,,,,,,,,,,,,,,,,,,
+when the video starts playing,,GTM Only,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,built in,no,,video_start,,,,,,,,,video_current_time,video_duration,video_percent,video_provider,video_title,video_url,visible,,,,,,,,,,
+"when the video progresses past 10%, 25%, 50%, and 75% duration time",,GTM Only,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,built in,no,,video_progress,,,,,,,,,video_current_time,video_duration,video_percent,video_provider,video_title,video_url,visible,,,,,,,,,,
+when the video ends,,GTM Only,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,built in,no,,video_complete,,,,,,,,,video_current_time,video_duration,video_percent,video_provider,video_title,video_url,visible,,,,,,,,,,
+When a file is downloaded,,GTM Only,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,built in,no,,file_download,,,,,,,,,,,,,,,,file_extension,file_name,link_classes,link_domain,link_id,link_text,link_url,,,
+"Scroll down to 25, 50,75,90%",,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,no,,scroll,,,,,percentage_scrolled,,,,,,,,,,,,,,,,,,,,
+When a search occurs,,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,built in,yes,,view_search_results,,,,search term,,,,,,,,,,,,,,,,,,,,,
+User clicks on mega menu,Click - menu,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,no,,navigation,link text,menu,,,,,,,,,,,,,,,,link_classes,,link_id,link_text,link_url,FALSE,,
+User clicks on the footer,Click - footer,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,no,,navigation,link text,footer,,,,,,,,,,,,,,,,link_classes,,link_id,link_text,link_url,FALSE,,
+User clicks on a CTA,Click - CTA,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,no,,navigation,link text,CTA,,,,,,,,,,,,,,,,link_classes,,link_id,link_text,link_url,FALSE,,
+User clicks on an email,Click - email,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,no,,navigation,link text,email,,,,,,,,,,,,,,,,link_classes,,link_id,link_text,link_url,FALSE,,
+User clicks on a phone,Click - phone,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,no,,navigation,link text,phone number,,,,,,,,,,,,,,,,link_classes,,link_id,link_text,link_url,FALSE,,
+Tabs clicked,Click - tab,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,no,,navigation,link text,tab,open/close,,,,,,,,,,,,,,,link_classes,link_domain,link_id,link_text,link_url,TRUE,,
+Outbound clicks,Click - outbound,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,no,,navigation,link text,outbound links,,,,,,,,,,,,,,,,link_classes,link_domain,link_id,link_text,link_url,TRUE,,
+click on any other link,Click - internal,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,no,,navigation,link text,internal links,,,,,,,,,,,,,,,,link_classes,,link_id,link_text,link_url,FALSE,,
+view 404 page,Page view - 404 page,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,no,,404_view,,,,,,,,,,,,,,,,,,,,,,,,,
+Core Web vitals for loading,,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,no,,LCP,,,,,,web_vitals_measurement_id,web_vitals_measurement_value,value,,,,,,,,,,,,,,,,,
+Core Web vitals for loading,,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,no,,FID,,,,,,web_vitals_measurement_id,web_vitals_measurement_value,value,,,,,,,,,,,,,,,,,
+Core Web vitals for loading,,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,no,,CLS,,,,,,web_vitals_measurement_id,web_vitals_measurement_value,value,,,,,,,,,,,,,,,,,
+Click on phone numbers in batteries page,,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,TRUE,,custom,,,batteries_call,,,,,,,,,,,,,,,,,,,,,,,,,
+appointment pages for batteries,,Dev work,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,booking_appointment,,,,,,,,,,,,,,,,,,,,,,,,,
+selet battery for booking,,Dev work,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,booking_battery,,,,,,,,,,,,,,,,,,,,,,,,,
+confirm battery booking,,Dev work,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,TRUE,,custom,,,booking_confirmation,,,,,,,,,,,,,,,,,,,,,,,,,
+location for booking battery,,Dev work,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,booking_location,,,,,,,,,,,,,,,,,,,,,,,,,
+vehicle for battery change,,Dev work,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,booking_vehicle,,,,,,,,,,,,,,,,,,,,,,,,,
+Triggered within GA4 - when claim and name = confirmation,,,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,TRUE,,custom,,,claim_confirmation,,,,,,,,,,,,,,,,,,,,,,,,,
+For each step of the claim form,,Dev work,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,claims,insurance step,insurance type,,,,,,,,,,,,,,,,,,,,,,,
+Page view of driver training purchase flow,,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,TRUE,,custom,,,drivertraining_purchase,,,,,,,,,,,,,,,,,,,,,,,,,
+"When purchase is click, store if current member",,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,field_is_current_member,,,is current member,,,,,,,,,,,,,,,,,,,,,,
+"When purchase is click, store if  marketing preference",,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,field_marketing_preference,,,marketing preference,,,,,,,,,,,,,,,,,,,,,,
+"When purchase is click, stor preferred contact",,GTM Only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,field_preferred_contact,,,preferred contact method,,,,,,,,,,,,,,,,,,,,,,
+When a form is complete - across sites,,Dev work,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,Form Completed,,,,,,,,,,,,,,,,,,,,,,,,,
+When a form is started - across sites,,Dev work,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,Form Started,,,,,,,,,,,,,,,,,,,,,,,,,
+When a form is viewed - across sites,,Dev work,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,Form Viewed,,,,,,,,,,,,,,,,,,,,,,,,,
+view of insurance purchase page,,GTM only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,generate_lead_pay_finalized,,,,,,,,,,,,,,,,,,,,,,,,,
+view of confirmation of international drivers permit,,GTM only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,TRUE,,custom,,,international_drivers_permit,,,,,,,,,,,,,,,,,,,,,,,,,
+Store the lifestage clicked,,GTM only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,lifeStage_event,,,,,,,,,,,,,,,,,,,,,,,,,
+View of the lifestyle purchase confirmation page,,GTM only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,TRUE,,custom,,,lifestyle_purchase,life stage clicked,selected_life_stage,,,,,,,,,,,,,,,,,,,,,,,
+thank you stage of the finance funnel,,Dev work,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,loan_application,,,,,,,,,,,,,,,,,,,,,,,,,
+View of the pet insurance purchase confirmation page,,GTM only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,TRUE,,custom,,,pet_insurance,,,,,,,,,,,,,,,,,,,,,,,,,
+when product type is selected insurance,,GTM only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,productType_event,product type clicked,selected_product_type,,,,,,,,,,,,,,,,,,,,,,,
+pet insurance purchase,,,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,purchase,,,,,,,,,,,,,,,,,,,,,,,,,
+pet insurance quote complete,,,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,quote_complete,,,,,,,,,,,,,,,,,,,,,,,,,
+when the feedback page is viewed,,GTM only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,TRUE,,custom,,,quote_converted,,insurance type,,,,,,,,,,,,,,,,,,,,,,,
+when the finalise page is viewed,,GTM only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,quote_finalise,,insurance type,,,,,,,,,,,,,,,,,,,,,,,
+when the peronal page is viewed,,GTM only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,quote_personal,,insurance type,,,,,,,,,,,,,,,,,,,,,,,
+when the premium page is viewed,,GTM only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,quote_premium,,insurance type,,,,,,,,,,,,,,,,,,,,,,,
+when retrieveQuotePM page is viewed,,GTM only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,quote_retrieve,,insurance type,,,,,,,,,,,,,,,,,,,,,,,
+when the risk page is viewed,,,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,quote_risk,,,,,,,,,,,,,,,,,,,,,,,,,
+when the feedback page is viewed - triggered within GA4,,,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,quoting_converted,,,,,,,,,,,,,,,,,,,,,,,,,
+when the premium page is viewed- triggered within GA4,,,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,TRUE,,custom,,,quoting_prequalified,,,,,,,,,,,,,,,,,,,,,,,,,
+when the finalise page is viewed - triggered within GA4,,,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,quoting_qualified,,,,,,,,,,,,,,,,,,,,,,,,,
+Completion of the request booking autoserve form,,Dev work,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,request_booking_autoserve,,,,,,,,,,,,,,,,,,,,,,,,,
+View of the roadside purchase confirmation page,,GTM only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,TRUE,,custom,,,roadside_purchase,,,,,,,,,,,,,,,,,,,,,,,,,
+Pageview of roadside quote page,,GTM only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,roadside_quote,,,,,,,,,,,,,,,,,,,,,,,,,
+Complete travel insurance quote,,Dev work,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,TRUE,,custom,,,ti_complete_quote,,trip type (multi/single),,,,,,,,,,,,,,,,,,,,,,,
+Start the quote for travel insurane,,GTM only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,ti_start_quote,,trip type (multi/single),,,,,,,,,,,,,,,,,,,,,,,
+View of medical condistions pop up,,GTM only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,view_medical_conditions,,,,,,,,,,,,,,,,,,,,,,,,,
+Click on get a quote in travel insurance,,GTM only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,get_a_quote_(trip type),,,,,,,,,,,,,,,,,,,,,,,,,
+click on faqs in travel insurance,,GTM only,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,faq_click,faq text,open/close,,,,,,,,,,,,,,,,,,,,,,,
+When an error occurs in a form (only on travel insurance),,,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,,custom,,,form_error,,,,,,,,,,,,,,,,,,,,,,,,,
