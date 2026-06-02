@@ -66,6 +66,25 @@ export default async function AdminClientDetailPage({
           </CardContent>
         </Card>
 
+        {/* Template toggle */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Visibility</CardTitle>
+          </CardHeader>
+          <CardContent className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground">
+                Template clients are visible to every logged-in user without needing to be assigned.
+              </p>
+            </div>
+            <AdminClientDetail
+              clientId={clientId}
+              action="toggle-template"
+              isTemplate={client.isTemplate}
+            />
+          </CardContent>
+        </Card>
+
         {/* Projects */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">

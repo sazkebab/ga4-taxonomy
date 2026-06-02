@@ -68,32 +68,18 @@ export async function POST(
     const result = await docs.documents.get({ documentId: docId })
     gDoc = result.data
   } catch (err: unknown) {
-    const errAny = err as {
-      status?: number
-      code?: number
-      message?: string
-      errors?: { reason?: string }[]
-      response?: { data?: { error?: { errors?: { reason?: string }[]; message?: string } } }
-    }
-    const httpStatus = errAny?.status ?? errAny?.code ?? 0
-    // Check for insufficient scope specifically (vs. "doc not shared with this account")
-    const errorsArr = errAny?.errors ?? errAny?.response?.data?.error?.errors ?? []
-    const reason    = (errorsArr[0]?.reason ?? '').toLowerCase()
-    const message   = (errAny?.message ?? errAny?.response?.data?.error?.message ?? '').toLowerCase()
-    const isScope   = reason === 'insufficientpermissions' || message.includes('insufficient') || message.includes('scope')
+    const errAny    = err as { status?: number; code?: number; message?: string; response?: { status?: number } }
+    const httpStatus = errAny?.status ?? errAny?.response?.status ?? (typeof errAny?.code === 'number' ? errAny.code : 0)
 
-    if (httpStatus === 401 || (httpStatus === 403 && isScope)) {
+    // Log the full error so we can see the real structure if detection ever fails
+    console.error('[datalayer/import] Docs API error status:', httpStatus, 'message:', errAny?.message)
+
+    if (httpStatus === 401 || httpStatus === 403) {
+      // 403 can mean either: (a) token lacks documents.readonly scope, or (b) doc not shared
+      // We show the re-auth button for both — if it's a sharing issue the user will see
+      // the same error after re-authing and can then check document permissions instead.
       return NextResponse.json(
-        {
-          error: 'Google Docs access not authorised. Click "Re-authorise Google" to grant document access.',
-          noScope: true,
-        },
-        { status: 403 }
-      )
-    }
-    if (httpStatus === 403) {
-      return NextResponse.json(
-        { error: "You don't have access to this document. Make sure it's shared with the Google account you signed in with." },
+        { error: 'Could not access this document.', noScope: true },
         { status: 403 }
       )
     }
@@ -103,7 +89,7 @@ export async function POST(
         { status: 404 }
       )
     }
-    console.error('[datalayer/import] Docs API error:', err)
+    console.error('[datalayer/import] Docs API full error:', err)
     return NextResponse.json({ error: 'Failed to fetch Google Doc.' }, { status: 500 })
   }
 

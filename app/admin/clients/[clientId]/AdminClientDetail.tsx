@@ -33,6 +33,7 @@ type Action =
   | 'assign-user'
   | 'remove-user'
   | 'toggle-admin'
+  | 'toggle-template'
   | 'delete-client'
 
 interface Props {
@@ -45,6 +46,7 @@ interface Props {
   userId?: string
   userName?: string
   isSuperAdmin?: boolean
+  isTemplate?: boolean
   unassignedUsers?: User[]
 }
 
@@ -58,6 +60,7 @@ export default function AdminClientDetail({
   userId,
   userName,
   isSuperAdmin,
+  isTemplate,
   unassignedUsers = [],
 }: Props) {
   const router = useRouter()
@@ -102,6 +105,12 @@ export default function AdminClientDetail({
           return
         }
         await fetch(`/api/clients/${clientId}/users?userId=${userId}`, { method: 'DELETE' })
+      } else if (action === 'toggle-template') {
+        await fetch(`/api/clients/${clientId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isTemplate: !isTemplate }),
+        })
       } else if (action === 'toggle-admin') {
         await fetch(`/api/admin/users/${userId}`, {
           method: 'PUT',
@@ -156,6 +165,20 @@ export default function AdminClientDetail({
     )
   }
 
+  if (action === 'toggle-template') {
+    return (
+      <Button
+        variant={isTemplate ? 'default' : 'outline'}
+        size="sm"
+        className={isTemplate ? 'bg-green-600 hover:bg-green-700 text-white text-xs h-8' : 'text-xs h-8'}
+        onClick={run}
+        disabled={loading}
+      >
+        {isTemplate ? '✓ Template (visible to all)' : 'Make template'}
+      </Button>
+    )
+  }
+
   if (action === 'toggle-admin') {
     return (
       <Button variant="outline" size="sm" className="text-xs h-7 px-2" onClick={run} disabled={loading}>
@@ -171,6 +194,7 @@ export default function AdminClientDetail({
     'assign-user': '+ Assign user',
     'remove-user': 'Remove',
     'toggle-admin': '',
+    'toggle-template': '',
     'delete-client': 'Delete client',
   }
 

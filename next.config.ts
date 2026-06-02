@@ -14,6 +14,8 @@ const nextConfig: NextConfig = {
     'googleapis',
     'google-auth-library',
     'docx',
+    '@anthropic-ai/sdk',
+    'pdf-parse',
   ],
 }
 

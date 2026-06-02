@@ -38,10 +38,13 @@ export async function PUT(
 
   const { clientId } = await params
   const body = await req.json()
-  const parsed = z.object({ name: z.string().min(1) }).safeParse(body)
+  const parsed = z.object({
+    name:       z.string().min(1).optional(),
+    isTemplate: z.boolean().optional(),
+  }).safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
 
-  const client = await db.client.update({ where: { id: clientId }, data: { name: parsed.data.name } })
+  const client = await db.client.update({ where: { id: clientId }, data: parsed.data })
   return NextResponse.json(client)
 }
 

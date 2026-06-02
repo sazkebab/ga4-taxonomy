@@ -41,6 +41,7 @@ export default function Sidebar() {
         { href: `${base}/ga4`,         label: 'GA4 Sync',   icon: '🔄' },
         { href: `${base}/import`,      label: 'Import',     icon: '📥' },
         { href: `${base}/datalayer`,   label: 'Dev Docs',   icon: '📄' },
+        { href: `${base}/analysis`,   label: 'Analysis',   icon: '🔍' },
       ]
     }
     if (clientSlug) {
@@ -139,13 +140,17 @@ export default function Sidebar() {
           )
         })}
 
-        {/* Admin link */}
-        <div className="pt-2 mt-2" style={{ borderTop: '1px solid color-mix(in oklch, var(--sidebar-border) 60%, transparent)' }}>
-          {(() => {
-            const active = pathname.startsWith('/admin')
+        {/* Help + Admin links */}
+        <div className="pt-2 mt-2 space-y-1" style={{ borderTop: '1px solid color-mix(in oklch, var(--sidebar-border) 60%, transparent)' }}>
+          {[
+            { href: '/help',          label: 'Help',  icon: '❓' },
+            { href: '/admin/clients', label: 'Admin', icon: '⚙️' },
+          ].map(({ href, label, icon }) => {
+            const active = pathname.startsWith(href)
             return (
               <Link
-                href="/admin/clients"
+                key={href}
+                href={href}
                 className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors"
                 style={
                   active
@@ -165,11 +170,11 @@ export default function Sidebar() {
                   }
                 }}
               >
-                <span className="text-base">⚙️</span>
-                Admin
+                <span className="text-base">{icon}</span>
+                {label}
               </Link>
             )
-          })()}
+          })}
         </div>
       </nav>
 

@@ -1,8 +1,12 @@
 import { db } from '@/lib/db'
 
 export async function requireClientAccess(userId: string, clientId: string) {
-  const user = await db.user.findUnique({ where: { id: userId }, select: { isSuperAdmin: true } })
+  const [user, client] = await Promise.all([
+    db.user.findUnique({ where: { id: userId }, select: { isSuperAdmin: true } }),
+    db.client.findUnique({ where: { id: clientId }, select: { isTemplate: true } }),
+  ])
   if (user?.isSuperAdmin) return
+  if (client?.isTemplate) return   // template clients are accessible to all logged-in users
   const membership = await db.clientUser.findUnique({
     where: { clientId_userId: { clientId, userId } },
   })

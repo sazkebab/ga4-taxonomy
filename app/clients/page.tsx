@@ -18,7 +18,7 @@ export default async function ClientsPage() {
         include: { _count: { select: { projects: true, users: true } } },
       })
     : await db.client.findMany({
-        where: { users: { some: { userId } } },
+        where: { OR: [{ users: { some: { userId } } }, { isTemplate: true }] },
         orderBy: { name: 'asc' },
         include: { _count: { select: { projects: true, users: true } } },
       })
@@ -63,7 +63,14 @@ export default async function ClientsPage() {
             <Card className="hover:bg-accent/50 transition-colors cursor-pointer">
               <CardContent className="flex items-center justify-between p-5">
                 <div>
-                  <p className="font-medium">{client.name}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium">{client.name}</p>
+                    {client.isTemplate && (
+                      <Badge className="text-xs px-1.5 py-0 bg-green-100 text-green-700 border-green-200">
+                        Template
+                      </Badge>
+                    )}
+                  </div>
                   <p className="text-sm text-muted-foreground mt-0.5">
                     {client._count.projects} project{client._count.projects !== 1 ? 's' : ''}
                   </p>

@@ -95,21 +95,28 @@ export default function GoogleDocImport({ apiBase }: Props) {
     )
   }
 
-  // ── No-scope state: re-authorise prompt ──────────────────────────────────────
+  // ── No-scope / access error state ────────────────────────────────────────────
   if (noScope) {
     return (
-      <div className="flex items-center gap-3 flex-wrap rounded-md border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm">
-        <span className="text-amber-800">
-          Google Docs access needs to be re-authorised.
-        </span>
-        <Button
-          size="sm"
-          className="h-7"
-          onClick={() => signIn('google', { callbackUrl: window.location.href })}
-        >
-          Re-authorise Google
-        </Button>
-        <Button variant="ghost" size="sm" className="h-7" onClick={reset}>Cancel</Button>
+      <div className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
+        <p className="text-amber-800 font-medium">Could not access the Google Doc</p>
+        <p className="text-amber-700 text-xs">
+          This is usually because your Google account needs to re-authorise document access.
+          Click <strong>Re-authorise Google</strong> and sign in again — this only needs to be done once.
+        </p>
+        <p className="text-amber-700 text-xs">
+          If the error persists after re-authorising, check that the document is shared with the Google account you&apos;re signed in with, or that the link is set to &quot;Anyone with the link can view&quot;.
+        </p>
+        <div className="flex gap-2 mt-1">
+          <Button
+            size="sm"
+            className="h-7"
+            onClick={() => signIn('google', { callbackUrl: window.location.href })}
+          >
+            Re-authorise Google
+          </Button>
+          <Button variant="ghost" size="sm" className="h-7" onClick={reset}>Cancel</Button>
+        </div>
       </div>
     )
   }
