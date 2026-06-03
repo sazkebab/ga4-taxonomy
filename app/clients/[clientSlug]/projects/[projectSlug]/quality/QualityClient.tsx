@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import SelectableReport from './SelectableReport'
@@ -58,6 +58,15 @@ export default function QualityClient({
   const [prompts,      setPrompts]     = useState(initialPrompts)
   const [running,      setRunning]     = useState(false)
   const [streamText,   setStreamText]  = useState('')
+  const [historyOpen,  setHistoryOpen] = useState(true)
+
+  // Sync report state when the server loads a different report (URL change)
+  useEffect(() => {
+    if (!running) {
+      setReport(initialReport)
+      setStreamText('')
+    }
+  }, [initialReport?.id])
   const [activeTools,  setActiveTools] = useState<string[]>([])
   const [creating,     setCreating]    = useState(false)
 
@@ -170,14 +179,25 @@ export default function QualityClient({
       )}
 
       {tab === 'report' && (
-        <div className="grid grid-cols-1 xl:grid-cols-[200px_1fr] gap-6">
+        <div className={`grid grid-cols-1 gap-6 ${historyOpen ? 'xl:grid-cols-[200px_1fr]' : 'xl:grid-cols-[auto_1fr]'}`}>
           {/* Report history */}
           <aside className="space-y-1.5">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">History</p>
-            {reports.length === 0 && (
+            <div className="flex items-center gap-2 mb-2">
+              {historyOpen && (
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex-1">History</p>
+              )}
+              <button
+                onClick={() => setHistoryOpen((v) => !v)}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors px-1"
+                title={historyOpen ? 'Collapse history' : 'Expand history'}
+              >
+                {historyOpen ? '◀' : '▶'}
+              </button>
+            </div>
+            {historyOpen && reports.length === 0 && (
               <p className="text-xs text-muted-foreground">No reports yet</p>
             )}
-            {reports.map((r) => (
+            {historyOpen && reports.map((r) => (
               <button
                 key={r.id}
                 onClick={() => router.push(`?report=${r.id}`)}
@@ -187,7 +207,7 @@ export default function QualityClient({
                 ].join(' ')}
               >
                 <p className="font-medium">
-                  {new Date(r.weekStart).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
+                  {new Date(r.createdAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: '2-digit' })}
                 </p>
                 <p className={`mt-0.5 text-xs px-1.5 py-0.5 rounded inline-block border ${healthBadge(r.status === 'complete' ? (reports.find(x => x.id === r.id) ? '' : '') : '')}`}>
                   {r.status === 'complete' ? '✓ Complete' : r.status === 'running' ? '⚡ Running' : r.status === 'error' ? '✗ Error' : '⏳ Pending'}
@@ -195,6 +215,7 @@ export default function QualityClient({
               </button>
             ))}
           </aside>
+
 
           {/* Report content */}
           <div>

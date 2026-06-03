@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import ChatInterface from './ChatInterface'
@@ -55,11 +55,12 @@ export default function AnalysisClient({
   currentMessages, currentGuided, initialTab, hasGa4,
 }: Props) {
   const router = useRouter()
-  const [tab,          setTab]    = useState<'chat' | 'guided' | 'research'>(initialTab)
-  const [chats,        setChats]  = useState(initialChats)
-  const [docs,         setDocs]   = useState(initialDocs)
-  const [guided,       setGuided] = useState(initialGuided)
+  const [tab,          setTab]      = useState<'chat' | 'guided' | 'research'>(initialTab)
+  const [chats,        setChats]    = useState(initialChats)
+  const [docs,         setDocs]     = useState(initialDocs)
+  const [guided,       setGuided]   = useState(initialGuided)
   const [creating,     setCreating] = useState(false)
+  const [sidebarOpen,  setSidebarOpen] = useState(true)
 
   function switchTab(t: 'chat' | 'guided' | 'research') {
     setTab(t)
@@ -103,11 +104,40 @@ export default function AnalysisClient({
     if (currentGuidedId === id) router.push('?tab=guided')
   }
 
+  async function renameChat(chatId: string, title: string) {
+    await fetch(`${apiBase}/analysis/chats/${chatId}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    })
+    setChats((prev) => prev.map((c) => c.id === chatId ? { ...c, title } : c))
+  }
+
+  async function renameGuided(id: string, title: string) {
+    await fetch(`${apiBase}/analysis/guided/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ coreQuestion: title }),
+    })
+    setGuided((prev) => prev.map((g) => g.id === id ? { ...g, coreQuestion: title } : g))
+  }
+
   return (
     <div className="flex h-full">
       {/* Left sidebar */}
-      <aside className="w-64 flex-none border-r flex flex-col bg-muted/20">
-        {/* Tabs */}
+      <aside className={`${sidebarOpen ? 'w-64' : 'w-10'} flex-none border-r flex flex-col bg-muted/20 transition-all duration-200`}>
+        {/* Collapse toggle */}
+        <div className={`flex items-center border-b ${sidebarOpen ? 'px-2 py-1.5' : 'justify-center py-2'}`}>
+          {sidebarOpen && <span className="flex-1 text-xs font-medium text-muted-foreground">Analysis</span>}
+          <button
+            onClick={() => setSidebarOpen((v) => !v)}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors p-1"
+            title={sidebarOpen ? 'Collapse panel' : 'Expand panel'}
+          >
+            {sidebarOpen ? '◀' : '▶'}
+          </button>
+        </div>
+
+        {/* All sidebar content — only shown when expanded */}
+        {sidebarOpen && <>
         <div className="flex border-b">
           {([
             { key: 'chat',     label: '💬', title: 'Chat' },
@@ -140,13 +170,14 @@ export default function AnalysisClient({
             </div>
             <nav className="flex-1 overflow-y-auto px-2 pb-3 space-y-0.5">
               {chats.map((chat) => (
-                <div key={chat.id}
-                  className={['group flex items-center gap-1 rounded-md px-2 py-1.5 cursor-pointer transition-colors', currentChatId === chat.id ? 'bg-accent' : 'hover:bg-accent/50'].join(' ')}
-                  onClick={() => router.push(`?tab=chat&chat=${chat.id}`)}>
-                  <span className="flex-1 text-xs truncate">{chat.title}</span>
-                  <button onClick={(e) => { e.stopPropagation(); deleteChat(chat.id) }}
-                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive text-xs px-1">✕</button>
-                </div>
+                <RenameableItem
+                  key={chat.id}
+                  label={chat.title}
+                  isActive={currentChatId === chat.id}
+                  onClick={() => router.push(`?tab=chat&chat=${chat.id}`)}
+                  onRename={(t) => renameChat(chat.id, t)}
+                  onDelete={() => deleteChat(chat.id)}
+                />
               ))}
               {chats.length === 0 && <p className="text-xs text-muted-foreground px-2 py-4 text-center">No chats yet</p>}
             </nav>
@@ -163,19 +194,19 @@ export default function AnalysisClient({
             </div>
             <nav className="flex-1 overflow-y-auto px-2 pb-3 space-y-0.5">
               {guided.map((g) => (
-                <div key={g.id}
-                  className={['group rounded-md px-2 py-2 cursor-pointer transition-colors', currentGuidedId === g.id ? 'bg-accent' : 'hover:bg-accent/50'].join(' ')}
-                  onClick={() => router.push(`?tab=guided&chat=${g.id}`)}>
-                  <div className="flex items-center gap-1.5 mb-0.5">
-                    <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${STATUS_BADGE[g.status] ?? ''}`}>
+                <RenameableItem
+                  key={g.id}
+                  label={g.coreQuestion || 'New analysis'}
+                  isActive={currentGuidedId === g.id}
+                  onClick={() => router.push(`?tab=guided&chat=${g.id}`)}
+                  onRename={(t) => renameGuided(g.id, t)}
+                  onDelete={() => deleteGuided(g.id)}
+                  badge={
+                    <span className={`text-xs px-1.5 py-0.5 rounded font-medium shrink-0 ${STATUS_BADGE[g.status] ?? ''}`}>
                       {g.status}
                     </span>
-                    {g.useCase && <span className="text-xs text-muted-foreground">{USE_CASE_LABELS[g.useCase] ?? ''}</span>}
-                    <button onClick={(e) => { e.stopPropagation(); deleteGuided(g.id) }}
-                      className="ml-auto opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive text-xs">✕</button>
-                  </div>
-                  <p className="text-xs truncate">{g.coreQuestion || 'New analysis'}</p>
-                </div>
+                  }
+                />
               ))}
               {guided.length === 0 && <p className="text-xs text-muted-foreground px-2 py-4 text-center">No analyses yet</p>}
             </nav>
@@ -194,6 +225,7 @@ export default function AnalysisClient({
             ))}
           </div>
         )}
+        </>}
       </aside>
 
       {/* Main area */}
@@ -246,6 +278,67 @@ export default function AnalysisClient({
           />
         )}
       </main>
+    </div>
+  )
+}
+
+// ─── RenameableItem ───────────────────────────────────────────────────────────
+
+function RenameableItem({
+  label, isActive, onClick, onRename, onDelete, badge,
+}: {
+  label:    string
+  isActive: boolean
+  onClick:  () => void
+  onRename: (title: string) => void
+  onDelete: () => void
+  badge?:   React.ReactNode
+}) {
+  const [editing,  setEditing]  = useState(false)
+  const [value,    setValue]    = useState(label)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  function startEdit(e: React.MouseEvent) {
+    e.stopPropagation()
+    setValue(label)
+    setEditing(true)
+    setTimeout(() => inputRef.current?.select(), 0)
+  }
+
+  function commit() {
+    setEditing(false)
+    const trimmed = value.trim()
+    if (trimmed && trimmed !== label) onRename(trimmed)
+    else setValue(label)
+  }
+
+  if (editing) {
+    return (
+      <div className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
+        {badge && <div className="mb-1">{badge}</div>}
+        <input
+          ref={inputRef}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setEditing(false); setValue(label) } }}
+          className="w-full text-xs bg-background border rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-primary"
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className={['group flex items-center gap-1 rounded-md px-2 py-1.5 cursor-pointer transition-colors', isActive ? 'bg-accent' : 'hover:bg-accent/50'].join(' ')}
+      onClick={onClick}
+    >
+      {badge && <span className="shrink-0">{badge}</span>}
+      <span className="flex-1 text-xs truncate">{label}</span>
+      <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 shrink-0">
+        <button onClick={startEdit} className="text-muted-foreground hover:text-foreground text-xs px-1" title="Rename">✎</button>
+        <button onClick={(e) => { e.stopPropagation(); onDelete() }} className="text-muted-foreground hover:text-destructive text-xs px-1" title="Delete">✕</button>
+      </div>
     </div>
   )
 }

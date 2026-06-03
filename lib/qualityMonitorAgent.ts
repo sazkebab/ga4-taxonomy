@@ -23,15 +23,24 @@ export type QualityStreamEvent =
 // ─── System prompt ────────────────────────────────────────────────────────────
 
 async function buildMonitorPrompt(projectId: string): Promise<string> {
-  const [project, events, suppressions, customPrompts] = await Promise.all([
+  const [project, events, suppressions, customPrompts, dataLayerDoc] = await Promise.all([
     db.project.findUnique({
       where: { id: projectId },
       select: { name: true, ga4PropertyId: true },
     }),
     db.event.findMany({
       where: { projectId },
-      select: { name: true, category: true, isKeyEvent: true, requiresDataLayer: true },
       orderBy: { name: 'asc' },
+      include: {
+        parameters: {
+          include: {
+            parameter: {
+              select: { name: true, type: true, description: true, example: true, requiresGA4Registration: true, ga4Registered: true },
+            },
+          },
+          orderBy: { parameter: { name: 'asc' } },
+        },
+      },
     }),
     db.dataQualitySuppression.findMany({
       where: { projectId, isActive: true },
@@ -42,13 +51,75 @@ async function buildMonitorPrompt(projectId: string): Promise<string> {
       orderBy: { order: 'asc' },
       select: { title: true, content: true },
     }),
+    db.dataLayerDoc.findUnique({
+      where: { projectId },
+      include: {
+        sections: {
+          include: {
+            event:      { select: { name: true } },
+            paramNotes: { select: { paramName: true, example: true, notes: true } },
+          },
+          orderBy: { order: 'asc' },
+        },
+      },
+    }),
   ])
 
-  const taxonomyList = events.map((e) =>
-    `- ${e.name}${e.isKeyEvent ? ' ★' : ''}${e.category ? ` [${e.category}]` : ''}`
-  ).join('\n')
+  // ── Taxonomy block ──────────────────────────────────────────────────────────
+  const taxonomyList = events.map((e) => {
+    const params = e.parameters.map((ep) => {
+      const p = ep.parameter
+      const parts = [p.name, p.type]
+      if (p.example)     parts.push(`e.g. "${p.example}"`)
+      if (p.description) parts.push(p.description)
+      if (p.requiresGA4Registration && !p.ga4Registered) parts.push('⚠ not yet registered in GA4')
+      return `    • ${parts.join(' — ')}`
+    }).join('\n')
+    const flags = [
+      e.isKeyEvent        ? '★ KEY EVENT'             : '',
+      e.requiresDataLayer ? 'needs dataLayer push'    : '',
+      e.category          ? `category: ${e.category}` : '',
+      e.notes             ? `note: ${e.notes}`         : '',
+    ].filter(Boolean).join(' | ')
+    return [`**${e.name}**${flags ? `  [${flags}]` : ''}`, params].filter(Boolean).join('\n')
+  }).join('\n\n')
 
-  const keyEvents   = events.filter((e) => e.isKeyEvent).map((e) => e.name)
+  // ── DataLayer docs block ────────────────────────────────────────────────────
+  let dataLayerBlock = ''
+  if (dataLayerDoc?.sections?.length) {
+    const sectionLines = dataLayerDoc.sections.map((s) => {
+      const statusParts = [
+        s.isDone     ? '✓ doc done'     : '✗ doc not done',
+        s.isTested   ? '✓ tested'       : '✗ not tested',
+        s.testResult ? `result: ${s.testResult}` : '',
+      ].filter(Boolean).join(', ')
+
+      const paramNoteLines = s.paramNotes.length > 0
+        ? s.paramNotes.map((pn) =>
+            `    • ${pn.paramName}${pn.example ? ` = ${pn.example}` : ''}${pn.notes ? ` (${pn.notes})` : ''}`
+          ).join('\n')
+        : ''
+
+      return [
+        `- **${s.event.name}**: ${statusParts}`,
+        paramNoteLines ? `  Parameter notes:\n${paramNoteLines}` : '',
+        s.testResult === 'failed' ? `  ⚠ FAILED TEST — may not be firing correctly` : '',
+      ].filter(Boolean).join('\n')
+    }).join('\n')
+
+    dataLayerBlock = `\n\n## DataLayer implementation status\nThis is the current dev docs status for each event. Use this when assessing whether missing GA4 fires are expected (e.g. not yet implemented) or unexpected (implemented but broken):\n\n${sectionLines}`
+  }
+
+  // ── Parameters needing GA4 registration ────────────────────────────────────
+  const unregisteredParams = events
+    .flatMap((e) => e.parameters.map((ep) => ep.parameter))
+    .filter((p, i, arr) => p.requiresGA4Registration && !p.ga4Registered && arr.findIndex((x) => x.name === p.name) === i)
+
+  const unregisteredBlock = unregisteredParams.length > 0
+    ? `\n\n## Parameters awaiting GA4 registration\nThese custom parameters are in the taxonomy but not yet registered as custom dimensions/metrics in GA4. Data for these parameters may be missing from reports:\n${unregisteredParams.map((p) => `- ${p.name} (${p.type})`).join('\n')}`
+    : ''
+
+  const keyEvents    = events.filter((e) => e.isKeyEvent).map((e) => e.name)
   const suppressList = suppressions.length > 0
     ? '\n\nKNOWN ISSUES TO SKIP (do not flag these):\n' +
       suppressions.map((s) => `- ${s.label || s.content.slice(0, 80)}`).join('\n')
@@ -59,13 +130,14 @@ async function buildMonitorPrompt(projectId: string): Promise<string> {
       customPrompts.map((p) => `### ${p.title}\n${p.content}`).join('\n\n')
     : ''
 
-  return `You are a GA4 data quality analyst. Your job is to run a weekly health check on the **${project?.name ?? 'this'}** GA4 property and produce a clear, actionable report.
+  return `You are an automated data quality monitoring bot. Your job is to run a weekly health check on the **${project?.name ?? 'this'}** GA4 property and produce a clear, actionable report. You are not a human analyst — always make clear that figures are pulled directly from GA4 and should be independently verified before acting on them.
 
 ## Event taxonomy (${events.length} events)
-These are ALL events that SHOULD be tracked. Use this as your reference:
+These are ALL events that SHOULD be tracked, with their expected parameters:
 ${taxonomyList}
 
 Key events (conversions): ${keyEvents.join(', ') || 'none defined'}
+${dataLayerBlock}${unregisteredBlock}
 
 ## Your task
 Run the following checks using the GA4 tools. Compare **last 7 days** vs **prior 7 days** throughout.
@@ -77,9 +149,10 @@ Increases >20% should also be noted (could indicate tracking issues).
 
 ### 2. Event inventory audit
 Get all events that fired in the last 7 days.
-- **Missing events**: events in the taxonomy above that had ZERO fires in the last 7 days
+- **Missing events**: events in the taxonomy above that had ZERO fires in the last 7 days. Cross-reference with the dataLayer implementation status — if an event is marked as not yet implemented or failed testing, note that rather than flagging it as a tracking error
 - **New/unexpected events**: events firing in GA4 that are NOT in the taxonomy
 - **Volume changes**: events with >50% change in fire count week-over-week
+- **Parameter quality**: for key events, note if expected parameters (from taxonomy) may be missing or incorrectly formatted based on the parameter examples in the docs
 
 ### 3. Key event (conversion) check
 For each key event marked ★ above, check fire counts. Flag drops >20%.
@@ -98,7 +171,9 @@ Produce a structured markdown report with:
 
 Then sections for each check above. Use clear headings, bullet points, and be specific with numbers and % changes. End with a **Recommended actions** section prioritised by impact.
 
-Be direct and actionable. A developer or analyst reading this should immediately know what to investigate.`
+Be direct and actionable. A developer or analyst reading this should immediately know what to investigate.
+
+End every report with a disclaimer section: "---\n*This report was generated automatically by a monitoring bot. All figures are pulled directly from GA4 and should be independently verified before acting on them.*"`
 }
 
 // ─── Streaming monitor run ─────────────────────────────────────────────────────

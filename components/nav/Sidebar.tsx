@@ -12,6 +12,18 @@ export default function Sidebar() {
   const { data: session } = useSession()
   const params = useParams<{ clientSlug?: string; projectSlug?: string }>()
 
+  const [collapsed, setCollapsed] = useState(false)
+
+  useEffect(() => {
+    setCollapsed(localStorage.getItem('sidebar-collapsed') === 'true')
+  }, [])
+
+  function toggleCollapse() {
+    const next = !collapsed
+    setCollapsed(next)
+    localStorage.setItem('sidebar-collapsed', String(next))
+  }
+
   const { clientSlug, projectSlug } = params ?? {}
 
   const [clientName, setClientName] = useState<string | null>(null)
@@ -56,29 +68,32 @@ export default function Sidebar() {
   })()
 
   return (
-    <aside className="w-56 min-h-screen flex flex-col" style={{ backgroundColor: 'var(--sidebar)', borderRight: '1px solid var(--sidebar-border)' }}>
-
-      {/* Logo */}
-      <div className="px-4 py-3" style={{ borderBottom: '1px solid var(--sidebar-border)' }}>
-        <Link href="/clients" className="block">
-          <div className="inline-flex items-center rounded px-2 py-1.5 bg-white">
-            <Image
-              src="/meliorum-logo.png"
-              alt="Meliorum"
-              width={150}
-              height={31}
-              priority
-              className="block"
-            />
-          </div>
-          <p className="text-xs mt-1.5 ml-0.5" style={{ color: 'var(--sidebar-foreground)', opacity: 0.55 }}>
-            GA4 Taxonomy
-          </p>
-        </Link>
+    <aside
+      className={`${collapsed ? 'w-12' : 'w-56'} min-h-screen flex flex-col transition-all duration-200 shrink-0`}
+      style={{ backgroundColor: 'var(--sidebar)', borderRight: '1px solid var(--sidebar-border)' }}
+    >
+      {/* Logo + collapse toggle */}
+      <div className="flex items-center justify-between px-3 py-3" style={{ borderBottom: '1px solid var(--sidebar-border)' }}>
+        {!collapsed && (
+          <Link href="/clients" className="block flex-1 min-w-0">
+            <div className="inline-flex items-center rounded px-2 py-1.5 bg-white">
+              <Image src="/meliorum-logo.png" alt="Meliorum" width={120} height={25} priority className="block" />
+            </div>
+            <p className="text-xs mt-1 ml-0.5" style={{ color: 'var(--sidebar-foreground)', opacity: 0.55 }}>GA4 Taxonomy</p>
+          </Link>
+        )}
+        <button
+          onClick={toggleCollapse}
+          className="shrink-0 p-1 rounded hover:bg-sidebar-accent transition-colors"
+          style={{ color: 'var(--sidebar-foreground)', opacity: 0.6 }}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed ? '→' : '←'}
+        </button>
       </div>
 
       {/* Breadcrumb context */}
-      {(clientSlug || projectSlug) && (
+      {!collapsed && (clientSlug || projectSlug) && (
         <div className="px-4 py-2 space-y-0.5" style={{ borderBottom: '1px solid var(--sidebar-border)' }}>
           <Link
             href="/clients"
@@ -109,14 +124,15 @@ export default function Sidebar() {
       )}
 
       {/* Nav items */}
-      <nav className="flex-1 p-3 space-y-1">
+      <nav className="flex-1 p-2 space-y-1">
         {navItems.map((item) => {
           const active = pathname.startsWith(item.href)
           return (
             <Link
               key={item.href}
               href={item.href}
-              className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors"
+              className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-2.5 px-3'} py-2 rounded-md text-sm transition-colors`}
+              title={collapsed ? item.label : undefined}
               style={
                 active
                   ? { backgroundColor: 'var(--sidebar-primary)', color: 'var(--sidebar-primary-foreground)', fontWeight: 500 }
@@ -136,7 +152,7 @@ export default function Sidebar() {
               }}
             >
               <span className="text-base">{item.icon}</span>
-              {item.label}
+              {!collapsed && item.label}
             </Link>
           )
         })}
@@ -152,7 +168,8 @@ export default function Sidebar() {
               <Link
                 key={href}
                 href={href}
-                className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors"
+                className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-2.5 px-3'} py-2 rounded-md text-sm transition-colors`}
+                title={collapsed ? label : undefined}
                 style={
                   active
                     ? { backgroundColor: 'var(--sidebar-primary)', color: 'var(--sidebar-primary-foreground)', fontWeight: 500 }
@@ -172,7 +189,7 @@ export default function Sidebar() {
                 }}
               >
                 <span className="text-base">{icon}</span>
-                {label}
+                {!collapsed && label}
               </Link>
             )
           })}
@@ -180,7 +197,7 @@ export default function Sidebar() {
       </nav>
 
       {/* User section */}
-      {session?.user && (
+      {!collapsed && session?.user && (
         <div className="p-3" style={{ borderTop: '1px solid var(--sidebar-border)' }}>
           <div className="flex items-center gap-2 mb-2">
             <Avatar className="h-7 w-7">
