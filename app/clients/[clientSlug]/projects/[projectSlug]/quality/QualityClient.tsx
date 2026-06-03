@@ -60,6 +60,17 @@ export default function QualityClient({
   const [streamText,   setStreamText]  = useState('')
   const [historyOpen,  setHistoryOpen] = useState(true)
 
+  async function deleteReport(reportId: string) {
+    if (!confirm('Delete this report?')) return
+    await fetch(`${apiBase}/quality/reports/${reportId}`, { method: 'DELETE' })
+    setReports((prev) => prev.filter((r) => r.id !== reportId))
+    if (report?.id === reportId) {
+      setReport(null)
+      setStreamText('')
+      router.push('?tab=report')
+    }
+  }
+
   // Sync report state when the server loads a different report (URL change)
   useEffect(() => {
     if (!running) {
@@ -198,21 +209,30 @@ export default function QualityClient({
               <p className="text-xs text-muted-foreground">No reports yet</p>
             )}
             {historyOpen && reports.map((r) => (
-              <button
+              <div
                 key={r.id}
-                onClick={() => router.push(`?report=${r.id}`)}
                 className={[
-                  'w-full text-left rounded-md px-2.5 py-2 text-xs transition-colors border',
+                  'group w-full text-left rounded-md px-2.5 py-2 text-xs transition-colors border cursor-pointer',
                   report?.id === r.id ? 'bg-accent border-border' : 'border-transparent hover:bg-muted/40',
                 ].join(' ')}
+                onClick={() => router.push(`?report=${r.id}`)}
               >
-                <p className="font-medium">
-                  {new Date(r.createdAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: '2-digit' })}
-                </p>
-                <p className={`mt-0.5 text-xs px-1.5 py-0.5 rounded inline-block border ${healthBadge(r.status === 'complete' ? (reports.find(x => x.id === r.id) ? '' : '') : '')}`}>
+                <div className="flex items-start justify-between gap-1">
+                  <p className="font-medium">
+                    {new Date(r.createdAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: '2-digit' })}
+                  </p>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); deleteReport(r.id) }}
+                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity shrink-0"
+                    title="Delete report"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
                   {r.status === 'complete' ? '✓ Complete' : r.status === 'running' ? '⚡ Running' : r.status === 'error' ? '✗ Error' : '⏳ Pending'}
                 </p>
-              </button>
+              </div>
             ))}
           </aside>
 
