@@ -15,7 +15,7 @@ import { db } from '@/lib/db'
 import { auth } from '@/auth'
 import { requireProjectAccess } from '@/lib/access'
 import { getGoogleAccessToken } from '@/lib/token'
-import { parseGoogleDoc, extractDocId, normaliseEventName } from '@/lib/parseGoogleDoc'
+import { parseGoogleDoc, extractDocId, normaliseEventNameCandidates } from '@/lib/parseGoogleDoc'
 
 const bodySchema = z.object({
   url: z.string().min(1),
@@ -110,7 +110,7 @@ export async function POST(
 
   // Build a normalised lookup map: normalisedName → event
   const eventMap = new Map(
-    projectEvents.map((e) => [normaliseEventName(e.name), e])
+    projectEvents.flatMap((e) => normaliseEventNameCandidates(e.name).map((k) => [k, e] as const))
   )
 
   // ── Upsert DataLayerDoc ───────────────────────────────────────────────────────
@@ -125,8 +125,8 @@ export async function POST(
   let imported = 0
 
   for (const section of parsedSections) {
-    const normName = normaliseEventName(section.eventName)
-    const event    = eventMap.get(normName)
+    const candidates = normaliseEventNameCandidates(section.eventName)
+    const event      = candidates.map((c) => eventMap.get(c)).find(Boolean)
 
     if (!event) {
       unmatched.push(section.eventName)

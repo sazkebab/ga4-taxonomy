@@ -76,9 +76,9 @@ export function parseGoogleDoc(doc: GDoc): ParsedSection[] {
       const isCode = isCodeParagraph(para) || looksLikeCode(text)
 
       if (isCode) {
-        // Accumulate code lines
+        // Accumulate code lines — preserve Google Docs paragraph indentation
         inCode = true
-        if (text) codeBuf.push(text)
+        if (text) codeBuf.push(paraTextIndented(para))
         continue
       }
 
@@ -123,6 +123,16 @@ function paraText(para: Para): string {
     .join('')
     .replace(/\n$/, '')
     .trim()
+}
+
+/** paraText + leading spaces derived from Google Docs paragraph indent.
+ *  indentStart is stored in PT (points). 36pt ≈ 1 standard indent level → 2 spaces. */
+function paraTextIndented(para: Para): string {
+  const text = paraText(para)
+  if (!text) return ''
+  const pts    = para.paragraphStyle?.indentStart?.magnitude ?? 0
+  const spaces = Math.round(pts / 18) * 2   // 18pt → 2 spaces, 36pt → 4 spaces
+  return spaces > 0 ? ' '.repeat(spaces) + text : text
 }
 
 /** True if any text run in the paragraph uses a monospace font */
@@ -288,4 +298,12 @@ export function normaliseEventName(raw: string): string {
     .replace(/[\s-]+/g, '_')
     .replace(/[^a-z0-9_]/g, '')
     .replace(/^_+|_+$/g, '')
+}
+
+/** For headings like "modal_open/modal_close", return all candidate normalisations to try */
+export function normaliseEventNameCandidates(raw: string): string[] {
+  // Split on "/" and try each part separately, plus the whole thing
+  const parts = raw.split('/').map((p) => p.trim()).filter(Boolean)
+  const all   = parts.length > 1 ? [raw, ...parts] : [raw]
+  return [...new Set(all.map(normaliseEventName))].filter(Boolean)
 }

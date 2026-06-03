@@ -12,6 +12,7 @@ const SECTIONS = [
   { id: 'devdocs',     label: 'Dev Docs' },
   { id: 'import',      label: 'Import' },
   { id: 'analysis',    label: 'Analysis' },
+  { id: 'quality',     label: 'Data quality' },
   { id: 'admin',       label: 'Admin' },
 ]
 
@@ -301,6 +302,61 @@ export default function HelpPage() {
                 <li>A GA4 property ID set in <strong>GA4 Sync</strong> (for data queries)</li>
                 <li>An <code className="text-xs bg-muted px-1 py-0.5 rounded">ANTHROPIC_API_KEY</code> environment variable set on the server</li>
               </ul>
+            </SubSection>
+          </Section>
+
+          {/* Quality */}
+          <Section id="quality" title="Data quality">
+            <P>
+              The Quality section runs a weekly GA4 health check per project, comparing the last 7 days against the prior 7 days and cross-referencing against your event taxonomy.
+            </P>
+
+            <SubSection title="What gets checked">
+              <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-2">
+                <li><strong>Core metrics</strong> — sessions, users, engaged sessions, conversions (flags &gt;15% drop as amber, &gt;30% as red)</li>
+                <li><strong>Event inventory audit</strong> — events in your taxonomy with zero fires, unexpected events not in taxonomy, events with &gt;50% volume change</li>
+                <li><strong>Key event check</strong> — conversion counts for all events marked as key events</li>
+                <li><strong>Traffic sources</strong> — channel breakdown with week-over-week shifts</li>
+                <li><strong>Top pages</strong> — top 10 pages flagging drops or unexpected new entries</li>
+                <li>Any <strong>custom prompts</strong> you've added</li>
+              </ul>
+              <P className="mt-2">Each report ends with an overall health rating: <strong>🟢 GREEN</strong> / <strong>🟡 AMBER</strong> / <strong>🔴 RED</strong>.</P>
+            </SubSection>
+
+            <SubSection title="Interactive findings">
+              <P>Select any text in a report to get two options:</P>
+              <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-2">
+                <li><strong>🚫 Ignore this</strong> — creates a suppression rule; future reports will skip this finding</li>
+                <li><strong>🔍 Tell me more</strong> — Claude drills down into that specific finding with more GA4 data, pulling detailed numbers and root cause analysis</li>
+              </ul>
+              <P className="mt-1">Drill-down responses appear below the report and can be expanded/collapsed.</P>
+            </SubSection>
+
+            <SubSection title="Custom prompts">
+              <P>Go to <strong>⚙️ Settings</strong> to add custom prompts that get included in every monitoring run. Use these to focus on what matters most for a specific project, for example:</P>
+              <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-2">
+                <li>"Always check checkout conversion rate and flag if it drops below 2%"</li>
+                <li>"Compare mobile vs desktop conversion rates separately"</li>
+                <li>"Flag if add_to_cart event drops below 50 fires per day"</li>
+              </ul>
+              <P className="mt-1">Prompts can be toggled on/off without deleting them.</P>
+            </SubSection>
+
+            <SubSection title="Suppressions">
+              <P>Suppressions are created when you select text and click "Ignore this". They appear in <strong>⚙️ Settings → Suppressions</strong> where you can:</P>
+              <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-2">
+                <li>See all active suppressions</li>
+                <li>Re-enable a suppression if you want it to reappear in future reports</li>
+                <li>Delete suppressions entirely</li>
+              </ul>
+            </SubSection>
+
+            <SubSection title="Scheduling weekly reports">
+              <P>Click <strong>▶ Run now</strong> to generate a report immediately. For automated weekly runs, add a cron job on the server:</P>
+              <pre className="text-xs bg-muted rounded p-3 mt-2">
+                {`# Run every Monday at 8am (replace with your project's API URL)
+0 8 * * 1 curl -X POST https://datadocs.meliorum.com.au/api/clients/CLIENT_ID/projects/PROJECT_ID/quality/reports`}
+              </pre>
             </SubSection>
           </Section>
 

@@ -42,6 +42,7 @@ export default function Sidebar() {
         { href: `${base}/import`,      label: 'Import',     icon: '📥' },
         { href: `${base}/datalayer`,   label: 'Dev Docs',   icon: '📄' },
         { href: `${base}/analysis`,   label: 'Analysis',   icon: '🔍' },
+        { href: `${base}/quality`,    label: 'Quality',    icon: '✅' },
       ]
     }
     if (clientSlug) {
