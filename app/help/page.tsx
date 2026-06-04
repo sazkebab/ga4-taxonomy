@@ -13,6 +13,7 @@ const SECTIONS = [
   { id: 'import',      label: 'Import' },
   { id: 'analysis',    label: 'Analysis' },
   { id: 'quality',     label: 'Data quality' },
+  { id: 'journeys',    label: 'Journeys' },
   { id: 'admin',       label: 'Admin' },
 ]
 
@@ -357,6 +358,45 @@ export default function HelpPage() {
                 {`# Run every Monday at 8am (replace with your project's API URL)
 0 8 * * 1 curl -X POST https://datadocs.meliorum.com.au/api/clients/CLIENT_ID/projects/PROJECT_ID/quality/reports`}
               </pre>
+            </SubSection>
+          </Section>
+
+          {/* Journeys */}
+          <Section id="journeys" title="Journeys">
+            <P>
+              The Journey map visualises how users navigate through the site as a sunburst chart, using GA4's <code className="text-xs bg-muted px-1 py-0.5 rounded">pageReferrer</code> and <code className="text-xs bg-muted px-1 py-0.5 rounded">pagePath</code> dimensions. No BigQuery required.
+            </P>
+
+            <SubSection title="Reading the chart">
+              <P>Each ring of the sunburst represents one step deeper in the journey. The innermost ring shows where users entered the site (landing pages). Moving outward shows where they navigated next. The size of each segment represents the proportion of users who took that path.</P>
+              <P>Hover over a segment to see the page name, user count, and percentage. Click a segment to see its detail in the centre.</P>
+            </SubSection>
+
+            <SubSection title="Page groups">
+              <P>By default the map shows raw URLs. Switch to <strong>⚙️ Page groups</strong> to define rules that collapse similar URLs into named segments — for example:</P>
+              <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-2">
+                <li><code className="text-xs bg-muted px-1 rounded">/</code> → Homepage</li>
+                <li><code className="text-xs bg-muted px-1 rounded">/products/*</code> → Products</li>
+                <li><code className="text-xs bg-muted px-1 rounded">/cart</code> → Cart</li>
+              </ul>
+              <P className="mt-2">Rules are matched in order — the first matching rule wins. Groups are saved per project and persist across sessions.</P>
+            </SubSection>
+
+            <SubSection title="Controls">
+              <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-2">
+                <li><strong>Date range</strong> — last 7, 30, or 90 days</li>
+                <li><strong>Depth</strong> — how many journey steps to show (2–8)</li>
+                <li><strong>Min users</strong> — prune branches with fewer than this many users (reduces noise)</li>
+              </ul>
+            </SubSection>
+
+            <SubSection title="Limitations">
+              <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-2">
+                <li>Based on the HTTP Referer header — SPA navigation without full page reloads may undercount internal transitions</li>
+                <li>Shows transitions between pages, not full individual session paths</li>
+                <li>External referrers (Google, social) are shown as entry points</li>
+                <li>Requires a GA4 property ID to be set in GA4 Sync</li>
+              </ul>
             </SubSection>
           </Section>
 

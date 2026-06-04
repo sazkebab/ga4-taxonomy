@@ -61,7 +61,15 @@ const TOOL_LABELS: Record<string, string> = {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onComplete, onStatusChange }: Props) {
-  const [data,         setData]         = useState<Analysis>(initial)
+  // useCase is stored as a JSON array string e.g. '["inform_ux_design","run_experiments"]'
+  // Parse it, falling back to wrapping a legacy single string value
+  function parseUseCases(raw: string): string[] {
+    if (!raw) return []
+    try { return JSON.parse(raw) } catch { return raw ? [raw] : [] }
+  }
+
+  const [data,         setData]         = useState<Analysis>({ ...initial, useCase: initial.useCase })
+  const [selectedUseCases, setSelectedUseCases] = useState<string[]>(() => parseUseCases(initial.useCase))
   const [step,         setStep]         = useState(initial.status === 'complete' ? 7 : 1)
   const [saving,       setSaving]       = useState(false)
   const [suggesting,   setSuggesting]   = useState(false)
@@ -143,7 +151,7 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
 
   const canAdvance = (() => {
     if (step === 1) return !!data.coreQuestion.trim()
-    if (step === 2) return !!data.useCase
+    if (step === 2) return selectedUseCases.length > 0
     return true
   })()
 
@@ -219,24 +227,46 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
         </WizardStep>
       )}
 
-      {/* Step 2: Use case */}
+      {/* Step 2: Use case (multi-select) */}
       {step === 2 && (
         <WizardStep title="What will you do with this insight?" subtitle="Step 2 of 6 — Use case">
+          <p className="text-sm text-muted-foreground mb-3">Select all that apply — the report will address each.</p>
           <div className="grid gap-2">
-            {USE_CASES.map((uc) => (
-              <button
-                key={uc.value}
-                onClick={() => { setData((p) => ({ ...p, useCase: uc.value })); save({ useCase: uc.value }) }}
-                className={[
-                  'text-left border rounded-lg px-4 py-3 transition-colors',
-                  data.useCase === uc.value ? 'border-primary bg-primary/5' : 'hover:bg-muted/40',
-                ].join(' ')}
-              >
-                <p className="font-medium text-sm">{uc.label}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{uc.desc}</p>
-              </button>
-            ))}
+            {USE_CASES.map((uc) => {
+              const selected = selectedUseCases.includes(uc.value)
+              return (
+                <button
+                  key={uc.value}
+                  onClick={() => {
+                    const next = selected
+                      ? selectedUseCases.filter((v) => v !== uc.value)
+                      : [...selectedUseCases, uc.value]
+                    setSelectedUseCases(next)
+                    const encoded = JSON.stringify(next)
+                    setData((p) => ({ ...p, useCase: encoded }))
+                    save({ useCase: encoded })
+                  }}
+                  className={[
+                    'text-left border rounded-lg px-4 py-3 transition-colors flex items-start gap-3',
+                    selected ? 'border-primary bg-primary/5' : 'hover:bg-muted/40',
+                  ].join(' ')}
+                >
+                  <span className={`mt-0.5 h-4 w-4 shrink-0 rounded border-2 flex items-center justify-center text-xs font-bold ${selected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/40'}`}>
+                    {selected ? '✓' : ''}
+                  </span>
+                  <div>
+                    <p className="font-medium text-sm">{uc.label}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{uc.desc}</p>
+                  </div>
+                </button>
+              )
+            })}
           </div>
+          {selectedUseCases.length > 0 && (
+            <p className="text-xs text-muted-foreground mt-3">
+              {selectedUseCases.length} selected — report will be framed for all of these
+            </p>
+          )}
         </WizardStep>
       )}
 

@@ -55,6 +55,7 @@ export default function Sidebar() {
         { href: `${base}/datalayer`,   label: 'Dev Docs',   icon: '📄' },
         { href: `${base}/analysis`,   label: 'Analysis',   icon: '🔍' },
         { href: `${base}/quality`,    label: 'Quality',    icon: '✅' },
+        { href: `${base}/journey`,    label: 'Journeys',   icon: '🗺️' },
       ]
     }
     if (clientSlug) {

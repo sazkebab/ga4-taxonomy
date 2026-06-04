@@ -16,6 +16,8 @@ const nextConfig: NextConfig = {
     'docx',
     '@anthropic-ai/sdk',
     'pdf-parse',
+    '@nivo/sunburst',
+    '@nivo/core',
   ],
 }
 

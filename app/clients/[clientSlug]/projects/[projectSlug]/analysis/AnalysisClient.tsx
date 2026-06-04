@@ -202,9 +202,21 @@ export default function AnalysisClient({
                   onRename={(t) => renameGuided(g.id, t)}
                   onDelete={() => deleteGuided(g.id)}
                   badge={
-                    <span className={`text-xs px-1.5 py-0.5 rounded font-medium shrink-0 ${STATUS_BADGE[g.status] ?? ''}`}>
-                      {g.status}
-                    </span>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${STATUS_BADGE[g.status] ?? ''}`}>
+                        {g.status}
+                      </span>
+                      {(() => {
+                        try {
+                          const keys: string[] = JSON.parse(g.useCase || '[]')
+                          return keys.slice(0, 2).map((k) => (
+                            <span key={k} className="text-xs text-muted-foreground">{USE_CASE_LABELS[k] ?? ''}</span>
+                          ))
+                        } catch {
+                          return g.useCase ? <span className="text-xs text-muted-foreground">{USE_CASE_LABELS[g.useCase] ?? ''}</span> : null
+                        }
+                      })()}
+                    </div>
                   }
                 />
               ))}

@@ -64,7 +64,16 @@ async function buildGuidedSystemPrompt(data: GuidedAnalysisData, projectId: stri
     return `- **${e.name}**${e.isKeyEvent ? ' [KEY EVENT]' : ''}${e.category ? ` (${e.category})` : ''}: ${e.trigger || 'no trigger'}${params ? ` | params: ${params}` : ''}`
   }).join('\n')
 
-  const useCaseText   = USE_CASE_FRAMING[data.useCase] ?? ''
+  // useCase may be a JSON array (multi-select) or a legacy single string
+  const useCaseKeys: string[] = (() => {
+    if (!data.useCase) return []
+    try { return JSON.parse(data.useCase) } catch { return data.useCase ? [data.useCase] : [] }
+  })()
+  const useCaseText = useCaseKeys.length > 0
+    ? useCaseKeys
+        .map((k, i) => `${i + 1}. **${k.replace(/_/g, ' ')}**: ${USE_CASE_FRAMING[k] ?? ''}`)
+        .join('\n')
+    : ''
   const literacyText  = LITERACY_FRAMING[data.stakeholderLiteracy] ?? LITERACY_FRAMING.medium
 
   const hypothesesText = data.hypotheses.length > 0
@@ -81,7 +90,7 @@ async function buildGuidedSystemPrompt(data: GuidedAnalysisData, projectId: stri
 
 CORE QUESTION: ${data.coreQuestion}
 
-PURPOSE: ${useCaseText}
+PURPOSE${useCaseKeys.length > 1 ? 'S (address all of these in your report)' : ''}: ${useCaseText}
 
 STAKEHOLDER: ${data.stakeholderName || 'The main stakeholder'}
 DATA LITERACY: ${literacyText}
