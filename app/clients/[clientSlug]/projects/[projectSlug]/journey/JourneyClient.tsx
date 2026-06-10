@@ -8,14 +8,14 @@ import JourneyChart from './JourneyChart'
 import JourneySettings from './JourneySettings'
 
 interface PageGroup { id: string; name: string; pattern: string; color: string; order: number }
-interface NivoNode  { name: string; value?: number; color?: string; children?: NivoNode[] }
+interface NivoNode  { id: string; name: string; value?: number; color?: string; children?: NivoNode[] }
 
 interface Props {
-  projectId:    string
-  apiBase:      string
-  initialGroups: PageGroup[]
-  initialTab:   'map' | 'settings'
-  hasGa4:       boolean
+  projectId:      string
+  apiBase:        string
+  initialGroups:  PageGroup[]
+  initialTab:     'map' | 'settings'
+  bqJourneyTable: string
 }
 
 const PRESET_RANGES = [
@@ -24,12 +24,14 @@ const PRESET_RANGES = [
   { label: 'Last 90 days', start: '90daysAgo', end: 'yesterday' },
 ]
 
-export default function JourneyClient({ projectId, apiBase, initialGroups, initialTab, hasGa4 }: Props) {
+export default function JourneyClient({ projectId, apiBase, initialGroups, initialTab, bqJourneyTable: initialBqTable }: Props) {
   const router = useRouter()
   const [tab,       setTab]      = useState<'map' | 'settings'>(initialTab)
   const [groups,    setGroups]   = useState(initialGroups)
+  const [bqTable,   setBqTable]  = useState(initialBqTable)
   const [tree,      setTree]     = useState<NivoNode | null>(null)
   const [total,     setTotal]    = useState(0)
+  const [source,    setSource]   = useState<'bigquery' | 'ga4' | null>(null)
   const [loading,   setLoading]  = useState(false)
   const [error,     setError]    = useState<string | null>(null)
 
@@ -49,6 +51,7 @@ export default function JourneyClient({ projectId, apiBase, initialGroups, initi
       if (!res.ok) { setError(data.error ?? 'Failed to load journey data'); return }
       setTree(data.tree)
       setTotal(data.totalUsers ?? 0)
+      setSource(data.source ?? null)
     } catch (err) {
       setError(String(err))
     } finally {
@@ -72,9 +75,9 @@ export default function JourneyClient({ projectId, apiBase, initialGroups, initi
         </div>
       </div>
 
-      {!hasGa4 && (
+      {!bqTable && (
         <div className="mb-4 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-4 py-2.5">
-          ⚠ No GA4 property configured — add one in <strong>GA4 Sync</strong> to enable the journey map.
+          ⚠ No BigQuery table configured. Go to <strong>⚙️ Page groups → Data source</strong> to set one up.
         </div>
       )}
 
@@ -120,7 +123,12 @@ export default function JourneyClient({ projectId, apiBase, initialGroups, initi
               />
             </div>
 
-            <Button onClick={loadJourney} disabled={loading || !hasGa4} size="sm" className="ml-auto">
+            {source && (
+              <span className={`text-xs px-2 py-1 rounded border ${source === 'bigquery' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
+                {source === 'bigquery' ? '📊 BigQuery' : '📈 GA4 API'}
+              </span>
+            )}
+            <Button onClick={loadJourney} disabled={loading || !bqTable} size="sm" className="ml-auto">
               {loading ? '⏳ Loading…' : tree ? '↺ Reload' : '▶ Load journey'}
             </Button>
           </div>
@@ -159,7 +167,9 @@ export default function JourneyClient({ projectId, apiBase, initialGroups, initi
         <JourneySettings
           apiBase={apiBase}
           groups={groups}
+          bqTable={bqTable}
           onChange={setGroups}
+          onBqTableChange={setBqTable}
         />
       )}
     </div>

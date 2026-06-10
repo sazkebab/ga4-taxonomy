@@ -67,6 +67,7 @@ export default function AdminClientDetail({
   const [open, setOpen] = useState(false)
   const [value, setValue] = useState(currentName ?? '')
   const [selectedUserId, setSelectedUserId] = useState('')
+  const [inviteEmail, setInviteEmail] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -94,11 +95,20 @@ export default function AdminClientDetail({
         }
         await fetch(`/api/clients/${clientId}/projects/${projectId}`, { method: 'DELETE' })
       } else if (action === 'assign-user') {
-        await fetch(`/api/clients/${clientId}/users`, {
+        const body = selectedUserId
+          ? { userId: selectedUserId }
+          : { email: inviteEmail.trim() }
+        const res = await fetch(`/api/clients/${clientId}/users`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: selectedUserId }),
+          body: JSON.stringify(body),
         })
+        if (!res.ok) {
+          const data = await res.json()
+          setError(data.error ?? 'Failed to invite user')
+          setLoading(false)
+          return
+        }
       } else if (action === 'remove-user') {
         if (!confirm(`Remove ${userName} from this client?`)) {
           setLoading(false)
@@ -191,7 +201,7 @@ export default function AdminClientDetail({
     rename: 'Rename',
     'create-project': '+ New project',
     'delete-project': 'Delete',
-    'assign-user': '+ Assign user',
+    'assign-user': '+ Invite user',
     'remove-user': 'Remove',
     'toggle-admin': '',
     'toggle-template': '',
@@ -201,11 +211,21 @@ export default function AdminClientDetail({
   const titles: Partial<Record<Action, string>> = {
     rename: 'Rename client',
     'create-project': 'New project',
-    'assign-user': 'Assign user',
+    'assign-user': 'Invite user to this client',
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v)
+        if (!v) {
+          setSelectedUserId('')
+          setInviteEmail('')
+          setError(null)
+        }
+      }}
+    >
       <DialogTrigger
         render={<Button variant={action === 'rename' ? 'outline' : 'default'} size="sm" />}
       >
@@ -228,24 +248,41 @@ export default function AdminClientDetail({
           )}
 
           {action === 'assign-user' && (
-            <div className="space-y-1.5">
-              <Label>User</Label>
-              {unassignedUsers.length === 0 ? (
-                <p className="text-sm text-muted-foreground">All users are already assigned.</p>
-              ) : (
-                <Select value={selectedUserId} onValueChange={(v) => setSelectedUserId(v ?? '')}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select user..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {unassignedUsers.map((u) => (
-                      <SelectItem key={u.id} value={u.id}>
-                        {u.name ?? u.email}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            <div className="space-y-4">
+              {unassignedUsers.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label>Existing user</Label>
+                  <Select
+                    value={selectedUserId}
+                    onValueChange={(v) => { setSelectedUserId(v ?? ''); setInviteEmail('') }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select user..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {unassignedUsers.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.name ?? u.email}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               )}
+              <div className="space-y-1.5">
+                <Label>{unassignedUsers.length > 0 ? 'Or invite by email' : 'Invite by email'}</Label>
+                <Input
+                  type="email"
+                  placeholder="name@gmail.com"
+                  value={inviteEmail}
+                  onChange={(e) => { setInviteEmail(e.target.value); setSelectedUserId('') }}
+                  onKeyDown={(e) => e.key === 'Enter' && run()}
+                  autoFocus={unassignedUsers.length === 0}
+                />
+                <p className="text-xs text-muted-foreground">
+                  They&apos;ll get access to this client automatically when they sign in with this Google account.
+                </p>
+              </div>
             </div>
           )}
 
@@ -254,10 +291,10 @@ export default function AdminClientDetail({
           <div className="flex gap-2">
             <Button
               onClick={run}
-              disabled={loading || (action === 'assign-user' && !selectedUserId)}
+              disabled={loading || (action === 'assign-user' && !selectedUserId && !inviteEmail.trim())}
               size="sm"
             >
-              {loading ? 'Saving...' : 'Save'}
+              {loading ? (action === 'assign-user' ? 'Inviting...' : 'Saving...') : (action === 'assign-user' ? 'Invite' : 'Save')}
             </Button>
             <Button variant="outline" size="sm" onClick={() => setOpen(false)}>
               Cancel

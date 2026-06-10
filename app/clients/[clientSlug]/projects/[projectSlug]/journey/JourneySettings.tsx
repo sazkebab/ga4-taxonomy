@@ -8,9 +8,11 @@ import { Label } from '@/components/ui/label'
 interface PageGroup { id: string; name: string; pattern: string; color: string; order: number }
 
 interface Props {
-  apiBase:  string
-  groups:   PageGroup[]
-  onChange: (groups: PageGroup[]) => void
+  apiBase:          string
+  groups:           PageGroup[]
+  bqTable:          string
+  onChange:         (groups: PageGroup[]) => void
+  onBqTableChange:  (table: string) => void
 }
 
 const DEFAULT_COLORS = [
@@ -18,7 +20,23 @@ const DEFAULT_COLORS = [
   '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6',
 ]
 
-export default function JourneySettings({ apiBase, groups, onChange }: Props) {
+export default function JourneySettings({ apiBase, groups, bqTable, onChange, onBqTableChange }: Props) {
+  const [bqInput,   setBqInput]   = useState(bqTable)
+  const [bqSaving,  setBqSaving]  = useState(false)
+  const [bqSaved,   setBqSaved]   = useState(false)
+
+  async function saveBqTable() {
+    setBqSaving(true)
+    // Extract projectId from apiBase: /api/clients/[clientId]/projects/[projectId]
+    await fetch(apiBase, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bqJourneyTable: bqInput.trim() }),
+    })
+    onBqTableChange(bqInput.trim())
+    setBqSaving(false); setBqSaved(true)
+    setTimeout(() => setBqSaved(false), 2000)
+  }
+
   const [showForm, setShowForm] = useState(false)
   const [editing,  setEditing]  = useState<PageGroup | null>(null)
   const [name,     setName]     = useState('')
@@ -81,7 +99,61 @@ export default function JourneySettings({ apiBase, groups, onChange }: Props) {
   }
 
   return (
-    <div className="max-w-2xl">
+    <div className="max-w-2xl space-y-8">
+
+      {/* BigQuery data source */}
+      <div>
+        <h3 className="font-semibold mb-1">Data source</h3>
+        <p className="text-xs text-muted-foreground mb-3">
+          Connect a BigQuery table for full multi-step journey paths. Without it, the map uses GA4's pageReferrer dimension which only shows 1 step.
+        </p>
+
+        <div className="border rounded-lg p-4 bg-muted/10 space-y-3">
+          <div className="space-y-1.5">
+            <Label>BigQuery table path</Label>
+            <div className="flex gap-2">
+              <Input
+                value={bqInput}
+                onChange={(e) => setBqInput(e.target.value)}
+                placeholder="your-project.analytics_123456.ga4_journey"
+                className="font-mono text-sm"
+              />
+              <Button size="sm" onClick={saveBqTable} disabled={bqSaving}>
+                {bqSaved ? '✓ Saved' : bqSaving ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Format: <code>gcp-project.dataset.table_name</code>
+            </p>
+          </div>
+
+          {!bqTable && (
+            <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded px-3 py-2.5 space-y-1.5">
+              <p className="font-medium">How to set up the BigQuery table:</p>
+              <ol className="list-decimal list-inside space-y-1 ml-1">
+                <li>Enable GA4 BigQuery export in your GA4 property (Admin → BigQuery linking)</li>
+                <li>Run the SQL query below in BigQuery to create the journey table</li>
+                <li>Paste the table path above and save</li>
+                <li>Re-authorise Google (⚙️ main menu) so the BigQuery scope is granted</li>
+              </ol>
+            </div>
+          )}
+
+          {/* SQL template */}
+          <details className="group">
+            <summary className="text-xs font-medium cursor-pointer text-primary hover:underline">
+              {bqTable ? 'View BigQuery SQL template' : 'Show BigQuery SQL to run first ↓'}
+            </summary>
+            <pre className="mt-2 text-xs bg-background border rounded p-3 overflow-x-auto leading-relaxed whitespace-pre">{BQ_SQL}</pre>
+            <p className="text-xs text-muted-foreground mt-1">
+              Replace <code>your-project.analytics_XXXXXXX</code> with your GA4 BigQuery export dataset. The table will be created / refreshed each time you run the query.
+            </p>
+          </details>
+        </div>
+      </div>
+
+      {/* Page groups */}
+      <div>
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="font-semibold">Page groups</h3>
@@ -181,6 +253,68 @@ export default function JourneySettings({ apiBase, groups, onChange }: Props) {
         <p><code>/checkout/confirmation</code> — Exact match only</p>
         <p>Rules are checked in the order shown. First match wins.</p>
       </div>
+      </div>  {/* end page groups */}
     </div>
   )
 }
+
+// ─── BigQuery SQL template ────────────────────────────────────────────────────
+
+const BQ_SQL = `-- Run this in BigQuery to create your journey table.
+-- Replace 'your-project.analytics_XXXXXXX' with your GA4 export dataset.
+-- Each row = one unique path through the site, up to 8 pages.
+
+CREATE OR REPLACE TABLE \`your-project.analytics_XXXXXXX.ga4_journey\` AS
+WITH page_views AS (
+  SELECT
+    CONCAT(
+      user_pseudo_id, '.',
+      CAST((SELECT value.int_value FROM UNNEST(event_params)
+            WHERE key = 'ga_session_id') AS STRING)
+    ) AS session_key,
+    event_timestamp,
+    ROW_NUMBER() OVER (
+      PARTITION BY
+        user_pseudo_id,
+        (SELECT value.int_value FROM UNNEST(event_params)
+         WHERE key = 'ga_session_id')
+      ORDER BY event_timestamp
+    ) AS step,
+    -- Extract path only (no domain, no query string), lowercase for consistency.
+    LOWER(COALESCE(
+      REGEXP_EXTRACT(
+        (SELECT value.string_value FROM UNNEST(event_params)
+         WHERE key = 'page_location'),
+        r'^https?://[^/?#]+(/[^?#]*)'
+      ),
+      '/'
+    )) AS page_path
+  FROM \`your-project.analytics_XXXXXXX.events_*\`
+  WHERE event_name = 'page_view'
+    AND _TABLE_SUFFIX >= FORMAT_DATE('%Y%m%d',
+        DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY))
+),
+pivoted AS (
+  SELECT
+    session_key,
+    MAX(IF(step = 1, page_path, NULL)) AS page_1,
+    MAX(IF(step = 2, page_path, NULL)) AS page_2,
+    MAX(IF(step = 3, page_path, NULL)) AS page_3,
+    MAX(IF(step = 4, page_path, NULL)) AS page_4,
+    MAX(IF(step = 5, page_path, NULL)) AS page_5,
+    MAX(IF(step = 6, page_path, NULL)) AS page_6,
+    MAX(IF(step = 7, page_path, NULL)) AS page_7,
+    MAX(IF(step = 8, page_path, NULL)) AS page_8
+  FROM page_views
+  WHERE page_path IS NOT NULL
+  GROUP BY session_key
+)
+SELECT
+  page_1, page_2, page_3, page_4,
+  page_5, page_6, page_7, page_8,
+  COUNT(*) AS users
+FROM pivoted
+WHERE page_1 IS NOT NULL
+GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
+HAVING users >= 2
+ORDER BY users DESC;`

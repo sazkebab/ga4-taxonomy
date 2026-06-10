@@ -44,7 +44,8 @@ model Project {
   slug          String        @default("")
   clientId      String
 
-  ga4PropertyId String        @default("")
+  ga4PropertyId   String      @default("")
+  bqJourneyTable  String      @default("")   // e.g. project.dataset.ga4_journey
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   client        Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)

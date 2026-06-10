@@ -23,7 +23,10 @@ export default async function JourneyPage({
     orderBy: { order: 'asc' },
   })
 
-  const hasGa4 = !!project.ga4PropertyId
+  const projectDetail = await db.project.findUnique({
+    where: { id: project.id },
+    select: { bqJourneyTable: true },
+  })
 
   return (
     <JourneyClient
@@ -31,7 +34,7 @@ export default async function JourneyPage({
       apiBase={apiBase}
       initialGroups={groups}
       initialTab={(tab === 'settings' ? 'settings' : 'map') as 'map' | 'settings'}
-      hasGa4={hasGa4}
+      bqJourneyTable={projectDetail?.bqJourneyTable ?? ''}
     />
   )
 }

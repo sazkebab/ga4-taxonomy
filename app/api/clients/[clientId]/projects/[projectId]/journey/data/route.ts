@@ -3,7 +3,8 @@ import { db } from '@/lib/db'
 import { auth } from '@/auth'
 import { requireProjectAccess } from '@/lib/access'
 import { getGoogleAccessToken } from '@/lib/token'
-import { fetchJourneyTransitions, buildJourneyTree } from '@/lib/journeyData'
+import { buildJourneyTree } from '@/lib/journeyData'
+import { fetchJourneyFromBigQuery } from '@/lib/journeyBigQuery'
 
 export async function GET(
   req: NextRequest,
@@ -23,15 +24,16 @@ export async function GET(
 
   const project = await db.project.findUnique({
     where: { id: projectId },
-    select: { ga4PropertyId: true },
+    select: { bqJourneyTable: true },
   })
-  if (!project?.ga4PropertyId) {
-    return NextResponse.json({ error: 'No GA4 property configured' }, { status: 400 })
+
+  if (!project?.bqJourneyTable) {
+    return NextResponse.json({ error: 'No BigQuery table configured. Add one in Journey → ⚙️ Page groups → Data source.' }, { status: 400 })
   }
 
   const accessToken = await getGoogleAccessToken()
   if (!accessToken) {
-    return NextResponse.json({ error: 'No Google access token' }, { status: 401 })
+    return NextResponse.json({ error: 'No Google access token — please sign in again' }, { status: 401 })
   }
 
   const groups = await db.journeyPageGroup.findMany({
@@ -41,11 +43,9 @@ export async function GET(
   })
 
   try {
-    const transitions = await fetchJourneyTransitions(
-      accessToken, project.ga4PropertyId, startDate, endDate,
-    )
+    const transitions = await fetchJourneyFromBigQuery(accessToken, project.bqJourneyTable, minUsers)
     const tree = buildJourneyTree(transitions, groups, maxDepth, minUsers)
-    return NextResponse.json({ tree, totalUsers: tree.value ?? 0, groupCount: groups.length })
+    return NextResponse.json({ tree, totalUsers: tree.value ?? 0, groupCount: groups.length, source: 'bigquery' })
   } catch (err) {
     console.error('[journey/data]', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })

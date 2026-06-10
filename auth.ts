@@ -23,6 +23,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             'https://www.googleapis.com/auth/spreadsheets.readonly',
             'https://www.googleapis.com/auth/drive.file',
             'https://www.googleapis.com/auth/documents.readonly',
+            'https://www.googleapis.com/auth/bigquery.readonly',
           ].join(' '),
         },
       },

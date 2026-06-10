@@ -38,7 +38,10 @@ export async function PUT(
   }
 
   const body = await req.json()
-  const parsed = z.object({ name: z.string().min(1).optional() }).safeParse(body)
+  const parsed = z.object({
+    name:           z.string().min(1).optional(),
+    bqJourneyTable: z.string().optional(),
+  }).safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
 
   const project = await db.project.update({ where: { id: projectId }, data: parsed.data })

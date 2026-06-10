@@ -390,11 +390,23 @@ export default function HelpPage() {
               </ul>
             </SubSection>
 
-            <SubSection title="Limitations">
+            <SubSection title="Setting up BigQuery for full journey paths (recommended)">
+              <P>GA4's standard Data API only provides 1-hop transitions. For true multi-step journeys, connect a BigQuery table:</P>
+              <ol className="list-decimal list-inside space-y-1.5 text-sm text-muted-foreground ml-2">
+                <li>In GA4 Admin → BigQuery linking, enable the BigQuery export for your property</li>
+                <li>Wait for the first export to arrive (usually within 24 hours)</li>
+                <li>Open BigQuery and run the SQL template found in <strong>🗺️ Journeys → ⚙️ Page groups → Data source</strong> — replace the dataset name with your own</li>
+                <li>Copy the resulting table path (e.g. <code>my-project.analytics_123456.ga4_journey</code>)</li>
+                <li>Paste it into the BigQuery table field in Journey settings and save</li>
+                <li>Re-authorise Google from the main menu (the app needs BigQuery read scope added to your token)</li>
+              </ol>
+              <P className="mt-2">The SQL creates a table with columns <code>page_1</code> through <code>page_8</code> and <code>users</code> — each row is a unique path through the site. Re-run the SQL whenever you want to refresh the data.</P>
+            </SubSection>
+
+            <SubSection title="Limitations (without BigQuery)">
               <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-2">
-                <li>Based on the HTTP Referer header — SPA navigation without full page reloads may undercount internal transitions</li>
-                <li>Shows transitions between pages, not full individual session paths</li>
-                <li>External referrers (Google, social) are shown as entry points</li>
+                <li>Without BigQuery, the map uses GA4's pageReferrer dimension — limited to 1 step</li>
+                <li>SPA navigation without full page reloads may undercount internal transitions</li>
                 <li>Requires a GA4 property ID to be set in GA4 Sync</li>
               </ul>
             </SubSection>

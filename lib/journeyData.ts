@@ -15,7 +15,8 @@ export interface PageGroup {
 }
 
 export interface NivoNode {
-  name:      string
+  id:        string   // unique path key used by nivo (e.g. "root/Homepage/Products/(exit)")
+  name:      string   // display label
   color?:    string
   value?:    number
   children?: NivoNode[]
@@ -23,26 +24,15 @@ export interface NivoNode {
 
 // ─── Page group matching ──────────────────────────────────────────────────────
 
-/** Strip domain from a full URL, returning just the path */
-function stripDomain(url: string): string {
-  try {
-    const u = new URL(url)
-    return u.pathname + u.search
-  } catch {
-    // Not a full URL — already a path, or empty
-    return url || '/'
-  }
+/** Normalise a path for consistent matching (remove query string, trailing slash except root) */
+function normPath(path: string): string {
+  const p = (path || '/').split('?')[0].split('#')[0] || '/'
+  return p !== '/' && p.endsWith('/') ? p.slice(0, -1) : p
 }
 
-/** Check if a URL is an external referrer (different domain or empty) */
-function isExternal(referrer: string, sampleHost: string): boolean {
-  if (!referrer) return true
-  try {
-    const ref = new URL(referrer)
-    return ref.hostname !== sampleHost
-  } catch {
-    return false
-  }
+/** True if a value is a GA4 "not set" placeholder or empty */
+function isNotSet(v: string): boolean {
+  return !v || v === '(not set)' || v === '(not_set)'
 }
 
 /**
@@ -50,7 +40,8 @@ function isExternal(referrer: string, sampleHost: string): boolean {
  * Supports exact match ("/") and wildcard suffix ("/products/*").
  * If no groups defined, returns the raw path.
  */
-export function matchPageGroup(path: string, groups: PageGroup[]): string {
+export function matchPageGroup(rawPath: string, groups: PageGroup[]): string {
+  const path = normPath(rawPath)
   if (groups.length === 0) return path
   for (const g of groups) {
     const p = g.pattern.trim()
@@ -64,10 +55,6 @@ export function matchPageGroup(path: string, groups: PageGroup[]): string {
   return path  // unmatched — show raw path
 }
 
-function groupColor(name: string, groups: PageGroup[]): string | undefined {
-  const g = groups.find((g) => g.name === name)
-  return g?.color || undefined
-}
 
 // ─── GA4 data fetching ────────────────────────────────────────────────────────
 
@@ -76,8 +63,6 @@ export interface JourneyTransitions {
   landingPages: Map<string, number>
   /** from path → (to path → user count) */
   edges:        Map<string, Map<string, number>>
-  /** sample host (used to detect external referrers) */
-  sampleHost:   string
 }
 
 export async function fetchJourneyTransitions(
@@ -89,52 +74,56 @@ export async function fetchJourneyTransitions(
   const dateRanges = [{ start_date: startDate, end_date: endDate }]
 
   const [landingRows, transitionRows] = await Promise.all([
-    runReport(accessToken, propertyId, ['landingPage'], ['sessions'], dateRanges, 50),
+    runReport(accessToken, propertyId, ['landingPage'], ['sessions'], dateRanges, 100),
     runReport(accessToken, propertyId, ['pageReferrer', 'pagePath'], ['totalUsers'], dateRanges, 2000),
   ])
-
-  // Detect the site's own host from internal referrers
-  let sampleHost = ''
-  for (const row of transitionRows) {
-    const ref = row.pageReferrer ?? ''
-    if (ref.startsWith('http')) {
-      try {
-        sampleHost = new URL(ref).hostname
-        break
-      } catch { /* ignore */ }
-    }
-  }
 
   // Build landing page map
   const landingPages = new Map<string, number>()
   for (const row of landingRows) {
-    const path     = row.landingPage || '/'
+    const path     = normPath(row.landingPage || '/')
     const sessions = parseInt(row.sessions ?? '0', 10)
-    if (sessions > 0) landingPages.set(path, (landingPages.get(path) ?? 0) + sessions)
+    if (sessions > 0 && !isNotSet(path)) {
+      landingPages.set(path, (landingPages.get(path) ?? 0) + sessions)
+    }
   }
 
-  // Build adjacency edges
+  // Detect own hostname from the first internal referrer we find
+  let siteHost = ''
+  for (const row of transitionRows) {
+    const ref = row.pageReferrer ?? ''
+    if (ref.startsWith('http')) {
+      try { siteHost = new URL(ref).hostname; break } catch { /* ignore */ }
+    }
+  }
+
+  // Build adjacency edges — internal navigation only.
+  // External/empty/not-set referrers = session entries already in landingPages → skip.
   const edges = new Map<string, Map<string, number>>()
   for (const row of transitionRows) {
-    const refFull = row.pageReferrer ?? ''
-    const toPath  = row.pagePath    ?? '/'
-    const users   = parseInt(row.totalUsers ?? '0', 10)
-    if (users <= 0) continue
+    const refRaw = row.pageReferrer ?? ''
+    const toRaw  = row.pagePath    ?? '/'
+    const users  = parseInt(row.totalUsers ?? '0', 10)
 
-    // Determine from-path
-    let fromPath: string
-    if (!refFull || isExternal(refFull, sampleHost)) {
-      fromPath = '(external)'
-    } else {
-      fromPath = stripDomain(refFull) || '/'
+    if (users <= 0 || isNotSet(toRaw)) continue
+
+    // Skip external or missing referrers (session entries)
+    if (isNotSet(refRaw)) continue
+    try {
+      const refHost = new URL(refRaw).hostname
+      if (siteHost && refHost !== siteHost) continue   // external — skip
+    } catch {
+      continue   // not a URL — skip
     }
 
+    const fromPath = normPath(new URL(refRaw).pathname)
+    const toPath   = normPath(toRaw)
+
     if (!edges.has(fromPath)) edges.set(fromPath, new Map())
-    const targets = edges.get(fromPath)!
-    targets.set(toPath, (targets.get(toPath) ?? 0) + users)
+    edges.get(fromPath)!.set(toPath, (edges.get(fromPath)!.get(toPath) ?? 0) + users)
   }
 
-  return { landingPages, edges, sampleHost }
+  return { landingPages, edges }
 }
 
 // ─── Tree building ────────────────────────────────────────────────────────────
@@ -147,20 +136,11 @@ export function buildJourneyTree(
   maxDepth: number,
   minUsers: number,
 ): NivoNode {
-  // Group landing pages
+  // Group landing pages (external/empty referrers already merged into landingPages)
   const groupedLanding = new Map<string, number>()
   for (const [path, count] of landingPages) {
     const name = matchPageGroup(path, groups)
     groupedLanding.set(name, (groupedLanding.get(name) ?? 0) + count)
-  }
-
-  // Also include entries via external referrers
-  const externalEdges = edges.get('(external)')
-  if (externalEdges) {
-    for (const [path, count] of externalEdges) {
-      const name = matchPageGroup(path, groups)
-      groupedLanding.set(name, (groupedLanding.get(name) ?? 0) + count)
-    }
   }
 
   // Sort and cap landing pages
@@ -172,21 +152,17 @@ export function buildJourneyTree(
   /** Recursively build child nodes for a given group name */
   function buildChildren(
     fromGroupName: string,
-    depth: number,
+    depth:         number,
     visitedGroups: Set<string>,
+    parentId:      string,
   ): NivoNode[] {
     if (depth >= maxDepth) return []
 
     // Collect all raw paths that belong to this group
     const fromPaths: string[] = []
-    if (fromGroupName === '(external)') {
-      fromPaths.push('(external)')
-    } else {
-      // Find all paths that map to this group
-      for (const [path] of edges) {
-        if (matchPageGroup(path, groups) === fromGroupName) {
-          fromPaths.push(path)
-        }
+    for (const [path] of edges) {
+      if (matchPageGroup(path, groups) === fromGroupName) {
+        fromPaths.push(path)
       }
     }
 
@@ -197,39 +173,53 @@ export function buildJourneyTree(
       if (!targets) continue
       for (const [toPath, count] of targets) {
         const toGroup = matchPageGroup(toPath, groups)
-        if (!visitedGroups.has(toGroup)) {
+        // Allow (exit) even if already visited — it can appear on any branch
+        if (!visitedGroups.has(toGroup) || toGroup === '(exit)') {
           nextGroupCounts.set(toGroup, (nextGroupCounts.get(toGroup) ?? 0) + count)
         }
       }
     }
 
-    return [...nextGroupCounts.entries()]
+    const sorted   = [...nextGroupCounts.entries()]
       .sort((a, b) => b[1] - a[1])
       .filter(([, v]) => v >= minUsers)
-      .slice(0, MAX_CHILDREN)
-      .map(([name, value]) => {
-        const nextVisited = new Set([...visitedGroups, name])
-        return {
-          name,
-          value,
-          color:    groupColor(name, groups),
-          children: buildChildren(name, depth + 1, nextVisited),
-        }
-      })
+
+    const top      = sorted.slice(0, MAX_CHILDREN)
+    const rest     = sorted.slice(MAX_CHILDREN)
+    const otherVal = rest.reduce((s, [, v]) => s + v, 0)
+
+    const nodes = top.map(([name, value]) => {
+      const nodeId      = `${parentId}/${name}`
+      const nextVisited = new Set([...visitedGroups, name])
+      return {
+        id:       nodeId,
+        name,
+        value,
+        children: name === '(exit)' ? [] : buildChildren(name, depth + 1, nextVisited, nodeId),
+      }
+    })
+
+    // Merge tail into (other) if meaningful
+    if (otherVal >= minUsers) {
+      nodes.push({ id: `${parentId}/(other)`, name: '(other)', value: otherVal, children: [] })
+    }
+
+    return nodes
   }
 
-  const children: NivoNode[] = topLanding.map(([name, value]) => ({
-    name,
-    value,
-    color:    groupColor(name, groups),
-    children: buildChildren(name, 1, new Set([name])),
-  }))
-
-  const totalUsers = topLanding.reduce((s, [, v]) => s + v, 0)
+  const children: NivoNode[] = topLanding.map(([name, value]) => {
+    const nodeId = `root/${name}`
+    return {
+      id:       nodeId,
+      name,
+      value,
+      children: buildChildren(name, 1, new Set([name]), nodeId),
+    }
+  })
 
   return {
-    name:     'All sessions',
-    value:    totalUsers,
+    id:   'root',
+    name: 'All sessions',
     children,
   }
 }

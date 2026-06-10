@@ -34,13 +34,25 @@ export async function POST(
 
   const { clientId } = await params
   const body = await req.json()
-  const parsed = z.object({ userId: z.string() }).safeParse(body)
+  const parsed = z.union([
+    z.object({ userId: z.string() }),
+    z.object({ email: z.string().email() }),
+  ]).safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
 
+  let userId: string
+  if ('email' in parsed.data) {
+    const existing = await db.user.findUnique({ where: { email: parsed.data.email } })
+    const user = existing ?? await db.user.create({ data: { email: parsed.data.email } })
+    userId = user.id
+  } else {
+    userId = parsed.data.userId
+  }
+
   await db.clientUser.upsert({
-    where: { clientId_userId: { clientId, userId: parsed.data.userId } },
+    where: { clientId_userId: { clientId, userId } },
     update: {},
-    create: { clientId, userId: parsed.data.userId },
+    create: { clientId, userId },
   })
   return NextResponse.json({ ok: true })
 }
