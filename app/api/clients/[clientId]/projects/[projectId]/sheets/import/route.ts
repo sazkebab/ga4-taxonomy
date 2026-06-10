@@ -68,6 +68,7 @@ export async function POST(
     const result = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range, majorDimension: 'ROWS' })
 
     const rows = result.data.values ?? []
+    const headerRowCells = rows[parsed.data.headerRow] ?? []
     const dataRows = rows.slice(parsed.data.headerRow + 1)
     const { mappings } = parsed.data
 
@@ -91,13 +92,21 @@ export async function POST(
 
       if (mappings.parameters && mappings.parameters.length > 0) {
         for (const colIdx of mappings.parameters) {
-          const paramName = row[colIdx]?.trim()
+          // Parameter name comes from the header row (e.g. "page_location"); the
+          // cell in this data row is a per-event description of how it's used.
+          // An empty cell means this event doesn't use this parameter.
+          const paramName = headerRowCells[colIdx]?.trim()
           if (!paramName) continue
+
+          const description = row[colIdx]?.trim() ?? ''
+          if (!description) continue
 
           let param = await db.parameter.findUnique({ where: { projectId_name: { projectId, name: paramName } } })
           if (!param) {
-            param = await db.parameter.create({ data: { projectId, name: paramName } })
+            param = await db.parameter.create({ data: { projectId, name: paramName, description } })
             parametersCreated++
+          } else if (!param.description && description) {
+            param = await db.parameter.update({ where: { id: param.id }, data: { description } })
           }
 
           const event = await db.event.findFirst({ where: { projectId, name: eventName } })
