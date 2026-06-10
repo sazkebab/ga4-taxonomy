@@ -9,6 +9,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      // Invited users get a User row (by email) created before they ever sign in.
+      // Without this, Auth.js refuses to link their first Google sign-in to that
+      // pre-created User and bounces them to /auth/signin?error=OAuthAccountNotLinked.
+      // Safe here because the only way a User row exists without an Account is via
+      // the admin-controlled invite flow (no email/password signup in this app).
+      allowDangerousEmailAccountLinking: true,
       authorization: {
         params: {
           prompt: 'consent',
