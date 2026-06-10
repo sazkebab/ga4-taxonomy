@@ -23,6 +23,23 @@ export type StreamEvent =
 
 type ToolCall = { name: string; summary: string }
 
+// ─── Date context ────────────────────────────────────────────────────────────
+
+/**
+ * Tells Claude what "today" is so it can resolve relative periods ("last
+ * month", "this week", "last quarter", "year to date") into real start/end
+ * dates instead of guessing based on its training cutoff.
+ */
+export function getCurrentDateContext(): string {
+  const now = new Date()
+  const isoDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Sydney' }).format(now)
+  const weekday = new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Sydney', weekday: 'long' }).format(now)
+
+  return `## Current date
+
+Today is ${weekday}, ${isoDate} (Australia/Sydney time). When the user asks for a relative period — "last month", "this week", "last quarter", "year to date", etc. — compute the actual start_date/end_date from this date; don't guess based on your training data. For ranges anchored to today you can also use GA4's relative date strings ('today', 'yesterday', 'NdaysAgo').`
+}
+
 // ─── System prompt ───────────────────────────────────────────────────────────
 
 async function buildSystemPrompt(projectId: string): Promise<string> {
@@ -90,6 +107,8 @@ When answering:
 - Quantify commercial impact where possible
 - Suggest concrete A/B test hypotheses with clear success metrics
 - Prioritise issues by severity × frequency × revenue impact
+
+${getCurrentDateContext()}
 
 ## Event taxonomy for this project
 

@@ -8,7 +8,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { db } from '@/lib/db'
 import { getGoogleAccessToken } from '@/lib/token'
-import { TOOLS, executeTool, StreamEvent } from '@/lib/analysisAgent'
+import { TOOLS, executeTool, StreamEvent, getCurrentDateContext } from '@/lib/analysisAgent'
 
 const MODEL = 'claude-sonnet-4-5'
 
@@ -102,6 +102,8 @@ OUTPUT STYLE PREFERENCE: ${data.preferredOutputStyle || 'not specified'}
 WHAT THE USER ALREADY KNOWS:
 ${data.priorKnowledge || 'Nothing specified'}
 ${subQText}${hypothesesText}
+
+${getCurrentDateContext()}
 
 ## Event taxonomy
 ${taxonomySummary}
