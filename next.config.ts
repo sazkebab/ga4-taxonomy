@@ -15,7 +15,6 @@ const nextConfig: NextConfig = {
     'google-auth-library',
     'docx',
     '@anthropic-ai/sdk',
-    'pdf-parse',
     '@nivo/sunburst',
     '@nivo/core',
   ],
