@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
+import { reindentCodeBlock, hasBalancedBrackets } from '@/lib/dataLayerDoc'
 
 interface Props {
   sectionId:    string
@@ -17,12 +18,9 @@ export default function EcommerceEditor({
   onUpdate,
 }: Props) {
   const [expanded, setExpanded] = useState(false)
-  // Display prettified JSON in the textarea
-  const prettyJson = (() => {
-    if (!ecommerceJson) return ''
-    try { return JSON.stringify(JSON.parse(ecommerceJson), null, 2) }
-    catch { return ecommerceJson }
-  })()
+  // Display nicely-indented text in the textarea. This doesn't need to be
+  // strict JSON — placeholders like <price> or `true/false` are fine.
+  const prettyJson = ecommerceJson ? reindentCodeBlock(ecommerceJson) : ''
 
   const [value, setValue]     = useState(prettyJson)
   const [saving, setSaving]   = useState(false)
@@ -31,26 +29,28 @@ export default function EcommerceEditor({
 
   async function save(raw: string) {
     if (raw === savedRef.current) return
-    // Validate JSON
-    let parsed: unknown
-    try { parsed = JSON.parse(raw) }
-    catch {
-      setSaveErr('Invalid JSON — please check the syntax')
+
+    // This doesn't need to be strict JSON — it's embedded verbatim into the
+    // generated code block, so unquoted keys, <placeholder> values, and
+    // `true/false` unions are all fine. Just check the brackets line up.
+    if (raw.trim() && !hasBalancedBrackets(raw)) {
+      setSaveErr('Unbalanced brackets — please check {}, [] and () match up')
       return
     }
     setSaveErr(null)
     setSaving(true)
-    const normalised = JSON.stringify(parsed)
+    const formatted = raw.trim() ? reindentCodeBlock(raw) : ''
     try {
       const res = await fetch(sectionUrl, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ecommerceJson: normalised }),
+        body: JSON.stringify({ ecommerceJson: formatted }),
       })
       if (res.ok) {
         const data = await res.json()
-        savedRef.current = raw
-        onUpdate(normalised, data.codeBlock ?? '')
+        setValue(formatted)
+        savedRef.current = formatted
+        onUpdate(formatted, data.codeBlock ?? '')
       } else {
         setSaveErr('Save failed')
       }

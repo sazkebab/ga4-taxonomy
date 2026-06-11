@@ -140,17 +140,13 @@ export function generateCodeBlock(
   })
 
   if (isEcommerce) {
-    // Resolve ecommerce object
-    let ecommerceObj: Record<string, unknown>
-    if (ecommerceJson) {
-      try { ecommerceObj = JSON.parse(ecommerceJson) }
-      catch { ecommerceObj = getDefaultEcommerceObj(eventName) }
-    } else {
-      ecommerceObj = getDefaultEcommerceObj(eventName)
-    }
+    // The ecommerce object doesn't need to be strict JSON — it's embedded
+    // verbatim (re-indented to match the surrounding code block), so it can
+    // contain unquoted keys, <placeholder> values, `true/false` unions, etc.
+    const raw = (ecommerceJson || getDefaultEcommerceJson(eventName)).trim()
 
     // Embed as indented block: `  ecommerce: { ... }`
-    const formatted = JSON.stringify(ecommerceObj, null, 2)
+    const formatted = reindentCodeBlock(raw)
     const embedded  = formatted
       .split('\n')
       .map((line, i) => (i === 0 ? `  ecommerce: ${line}` : `  ${line}`))
@@ -178,29 +174,107 @@ export function generateCodeBlock(
 // ─── Re-indentation ────────────────────────────────────────────────────────────
 
 /**
- * Lightweight re-indenter for hand-edited dataLayer.push() blocks.
+ * Lightweight re-indenter for hand-edited dataLayer.push() blocks (and
+ * standalone ecommerce objects).
  *
  * Not a full JS formatter — just normalises indentation based on bracket
- * nesting, using the same convention as generateCodeBlock(): a leading run
- * of closing brackets (}, ], )) dedents by one level regardless of how many
- * characters are in the run (so a `});` line only dedents once, matching how
- * `dataLayer.push({ ... })` is indented), and a trailing run of opening
- * brackets ({, [, () indents subsequent lines by one level.
+ * nesting. Each line's leading run of closing brackets (}, ], )) dedents by
+ * one level per `}`/`]` (so `}]` — closing an item object inside an `items`
+ * array on one line — dedents by two), while `(` and `)` are treated as
+ * "hugging" an adjacent {}/[] and never add their own level — this matches
+ * how `dataLayer.push({ ... })` / `});` are indented (one level, not two).
+ * Symmetrically, a trailing run of opening brackets ({, [, () indents
+ * subsequent lines by one level per `{`/`[`.
  */
 export function reindentCodeBlock(code: string, indent = '  '): string {
   let depth = 0
+  const countOpeners = (s: string) => (s.match(/[{[]/g) ?? []).length
+  const countClosers = (s: string) => (s.match(/[}\]]/g) ?? []).length
 
   return code.split('\n').map((rawLine) => {
     const line = rawLine.trim()
     if (line === '') return ''
 
-    const leadingClose = '}])'.includes(line[0])
-    const lineDepth = Math.max(0, depth - (leadingClose ? 1 : 0))
+    // Leading run of }, ], ) — dedent by the number of }/] in it.
+    let lead = 0
+    while (lead < line.length && '}])'.includes(line[lead])) lead++
+    const dedent = countClosers(line.slice(0, lead))
+
+    const lineDepth = Math.max(0, depth - dedent)
     const formatted = indent.repeat(lineDepth) + line
     depth = lineDepth
 
-    if ('{[('.includes(line[line.length - 1])) depth += 1
+    // Trailing run of {, [, ( — indent by the number of {/[ in it.
+    let trail = line.length
+    while (trail > 0 && '{[('.includes(line[trail - 1])) trail--
+    depth += countOpeners(line.slice(trail))
 
     return formatted
   }).join('\n')
+}
+
+// ─── Lenient parsing for hand-edited ecommerce objects ────────────────────────
+
+/**
+ * Checks that {}, [], () are balanced and properly nested, ignoring any
+ * brackets inside '...'/"..."/`...` string literals. Used as a lightweight
+ * "this looks structurally sound" gate for hand-edited ecommerce objects
+ * that aren't required to be strict JSON.
+ */
+export function hasBalancedBrackets(text: string): boolean {
+  const stack: string[] = []
+  const closers: Record<string, string> = { ')': '(', ']': '[', '}': '{' }
+  let quote: string | null = null
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+
+    if (quote) {
+      if (ch === '\\') { i++; continue }
+      if (ch === quote) quote = null
+      continue
+    }
+
+    if (ch === '"' || ch === "'" || ch === '`') { quote = ch; continue }
+
+    if (ch === '{' || ch === '[' || ch === '(') stack.push(ch)
+    else if (ch === '}' || ch === ']' || ch === ')') {
+      if (stack.pop() !== closers[ch]) return false
+    }
+  }
+
+  return stack.length === 0 && quote === null
+}
+
+/**
+ * Parses "ecommerce object" text that doesn't need to be strict JSON.
+ *
+ * Tries JSON.parse() first (covers the auto-generated defaults, which are
+ * already valid JSON). If that fails, normalises common JS-object-literal
+ * conventions — unquoted keys, bare <placeholder> tokens, `true/false`
+ * placeholder unions, and trailing commas — into valid JSON and tries again.
+ * Returns null if it still can't be parsed.
+ *
+ * Used for things that need to introspect the object's shape (e.g. the
+ * ecommerce fields table) — the raw text itself (not this parsed result) is
+ * what gets embedded into generated code blocks, so placeholder syntax is
+ * preserved verbatim there.
+ */
+export function lenientJsonParse(text: string): unknown | null {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+
+  try { return JSON.parse(trimmed) } catch { /* fall through */ }
+
+  const normalised = trimmed
+    // Quote unquoted object keys, e.g. `{ foo:` / `, foo:` → `{ "foo":` / `, "foo":`
+    .replace(/([{,]\s*)([A-Za-z_$][A-Za-z0-9_$]*)\s*:/g, '$1"$2":')
+    // Quote bare <placeholder> tokens that aren't already inside quotes
+    .replace(/(?<!")<([^<>"'\n]*)>(?!")/g, '"<$1>"')
+    // Quote `true/false`-style placeholder unions
+    .replace(/:\s*true\/false\b/g, ': "true/false"')
+    // Drop trailing commas before } or ]
+    .replace(/,(\s*[}\]])/g, '$1')
+
+  try { return JSON.parse(normalised) } catch { return null }
 }

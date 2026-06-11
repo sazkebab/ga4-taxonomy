@@ -45,6 +45,11 @@ export default function DataLayerSectionCard({
   const [triggerValue, setTriggerValue]     = useState(section.event.trigger ?? '')
   const [savingTrigger, setSavingTrigger]   = useState(false)
 
+  // Inline event name (title) edit
+  const [editingName, setEditingName] = useState(false)
+  const [nameValue, setNameValue]     = useState(section.event.name)
+  const [savingName, setSavingName]   = useState(false)
+
   // Split screenshots by context
   const triggerScreenshots = (section.screenshots ?? []).filter((s) => s.context === 'trigger')
   const testScreenshots    = (section.screenshots ?? []).filter((s) => s.context !== 'trigger')
@@ -90,6 +95,39 @@ export default function DataLayerSectionCard({
     }
   }
 
+  async function commitName() {
+    const val = nameValue.trim()
+    setEditingName(false)
+    if (!val || val === section.event.name) {
+      setNameValue(section.event.name)
+      return
+    }
+    setSavingName(true)
+    try {
+      const res = await fetch(`${apiBase}/events/${section.event.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: val }),
+      })
+      if (res.ok) {
+        onUpdate({ event: { ...section.event, name: val } })
+        // Event name is embedded in the generated code block (`event:`/`action:`) —
+        // regenerate it to match, unless it's been hand-edited.
+        if (!section.codeBlockCustomised) {
+          const regen = await fetch(`${sectionUrl}/regenerate`, { method: 'POST' })
+          if (regen.ok) {
+            const updated = await regen.json()
+            onUpdate({ codeBlock: updated.codeBlock, codeBlockCustomised: false })
+          }
+        }
+      } else {
+        setNameValue(section.event.name)
+      }
+    } finally {
+      setSavingName(false)
+    }
+  }
+
   function handleScreenshotUpdate(context: 'trigger' | 'test', updated: Screenshot[]) {
     const other = context === 'trigger' ? testScreenshots : triggerScreenshots
     onUpdate({ screenshots: [...other, ...updated] })
@@ -121,11 +159,40 @@ export default function DataLayerSectionCard({
       <CardHeader className="pb-3" style={{ borderBottom: '1px solid var(--border)' }}>
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <CardTitle className="text-base font-mono truncate">
-              {section.event.category
-                ? `custom.${section.event.category ?? ''}.${section.event.name}`
-                : section.event.name}
-            </CardTitle>
+            {editingName ? (
+              <div className="flex items-center gap-1">
+                {section.event.category && (
+                  <span className="text-base font-mono text-muted-foreground shrink-0">
+                    custom.{section.event.category}.
+                  </span>
+                )}
+                <input
+                  className="min-w-0 flex-1 rounded-md border border-input bg-background px-1.5 py-0.5 text-base font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+                  value={nameValue}
+                  onChange={(e) => setNameValue(e.target.value)}
+                  onBlur={commitName}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                    if (e.key === 'Escape') { setEditingName(false); setNameValue(section.event.name) }
+                  }}
+                  autoFocus
+                  disabled={savingName}
+                />
+              </div>
+            ) : (
+              <button
+                className="w-full text-left group"
+                onClick={() => { setNameValue(section.event.name); setEditingName(true) }}
+                title="Click to edit event name"
+              >
+                <CardTitle className="text-base font-mono truncate">
+                  {section.event.category
+                    ? `custom.${section.event.category ?? ''}.${section.event.name}`
+                    : section.event.name}
+                  <span className="ml-1 opacity-0 group-hover:opacity-50 text-xs align-middle">✎</span>
+                </CardTitle>
+              </button>
+            )}
 
             {/* Trigger — inline editable */}
             <div className="mt-2">

@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { lenientJsonParse } from '@/lib/dataLayerDoc'
 import type { EcommerceNote } from './types'
 
 interface Field {
@@ -34,18 +35,19 @@ function parseFields(ecommerceJson: string): { top: Field[]; items: Field[] } {
   const top:   Field[] = []
   const items: Field[] = []
   if (!ecommerceJson) return { top, items }
-  try {
-    const obj = JSON.parse(ecommerceJson)
-    for (const [key, val] of Object.entries(obj)) {
-      if (key === 'items' && Array.isArray(val) && val.length > 0) {
-        for (const [iKey, iVal] of Object.entries(val[0] as Record<string, unknown>)) {
-          items.push({ path: `items.${iKey}`, label: iKey, type: inferType(iVal) })
-        }
-      } else {
-        top.push({ path: key, label: key, type: inferType(val) })
+
+  const obj = lenientJsonParse(ecommerceJson)
+  if (!obj || typeof obj !== 'object') return { top, items }
+
+  for (const [key, val] of Object.entries(obj as Record<string, unknown>)) {
+    if (key === 'items' && Array.isArray(val) && val.length > 0) {
+      for (const [iKey, iVal] of Object.entries(val[0] as Record<string, unknown>)) {
+        items.push({ path: `items.${iKey}`, label: iKey, type: inferType(iVal) })
       }
+    } else {
+      top.push({ path: key, label: key, type: inferType(val) })
     }
-  } catch { /* ignore */ }
+  }
   return { top, items }
 }
 
