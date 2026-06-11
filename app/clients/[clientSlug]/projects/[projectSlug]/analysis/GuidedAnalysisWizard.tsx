@@ -70,10 +70,12 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
 
   const [data,         setData]         = useState<Analysis>({ ...initial, useCase: initial.useCase })
   const [selectedUseCases, setSelectedUseCases] = useState<string[]>(() => parseUseCases(initial.useCase))
-  const [step,         setStep]         = useState(initial.status === 'complete' ? 7 : 1)
+  const [step,         setStep]         = useState(initial.status === 'complete' ? 7 : initial.status === 'error' ? 6 : 1)
   const [saving,       setSaving]       = useState(false)
   const [suggesting,   setSuggesting]   = useState(false)
+  const [suggestErr,   setSuggestErr]   = useState<string | null>(null)
   const [running,      setRunning]      = useState(false)
+  const [runError,     setRunError]     = useState<string | null>(null)
   const [streamText,   setStreamText]   = useState('')
   const [activeToolName, setActiveTool] = useState<string | null>(null)
   const [toolsDone,    setToolsDone]    = useState<string[]>([])
@@ -94,20 +96,48 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
 
   async function suggestQuestions() {
     setSuggesting(true)
-    const res = await fetch(`${apiBase}/analysis/guided/${data.id}/suggest-questions`, { method: 'POST' })
-    const json = await res.json()
-    setData((prev) => ({ ...prev, subQuestions: json.subQuestions ?? [] }))
-    setSuggesting(false)
+    setSuggestErr(null)
+    try {
+      const res  = await fetch(`${apiBase}/analysis/guided/${data.id}/suggest-questions`, { method: 'POST' })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) {
+        setSuggestErr(json?.error ?? `Request failed (${res.status})`)
+        return
+      }
+      setData((prev) => ({ ...prev, subQuestions: json?.subQuestions ?? [] }))
+    } catch {
+      setSuggestErr('Network error — could not reach the server')
+    } finally {
+      setSuggesting(false)
+    }
   }
 
   async function runAnalysis() {
     setRunning(true)
     setStreamText('')
     setToolsDone([])
+    setRunError(null)
     onStatusChange('running')
 
-    const res = await fetch(`${apiBase}/analysis/guided/${data.id}/run`, { method: 'POST' })
-    if (!res.ok || !res.body) { setRunning(false); return }
+    let res: Response
+    try {
+      res = await fetch(`${apiBase}/analysis/guided/${data.id}/run`, { method: 'POST' })
+    } catch {
+      setRunError('Network error — could not reach the server')
+      setData((prev) => ({ ...prev, status: 'error' }))
+      onStatusChange('error')
+      setRunning(false)
+      return
+    }
+
+    if (!res.ok || !res.body) {
+      const text = await res.text().catch(() => '')
+      setRunError(text || `Request failed (${res.status})`)
+      setData((prev) => ({ ...prev, status: 'error' }))
+      onStatusChange('error')
+      setRunning(false)
+      return
+    }
 
     const reader  = res.body.getReader()
     const decoder = new TextDecoder()
@@ -139,6 +169,8 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
             onComplete(report)
             setStep(7)
           } else if (event.type === 'error') {
+            setRunError(event.message ?? 'An unknown error occurred')
+            setData((prev) => ({ ...prev, status: 'error' }))
             onStatusChange('error')
           }
         } catch { /* ignore */ }
@@ -155,7 +187,22 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
     return true
   })()
 
-  function next() { if (canAdvance) setStep((s) => s + 1) }
+  // Carry Step 5's sub-questions over as Step 6's "Question" fields, preserving
+  // any assumed-answers already entered for questions that still match.
+  function syncHypothesesFromSubQuestions() {
+    const questions = data.subQuestions.map((q) => q.trim()).filter(Boolean)
+    if (questions.length === 0) return
+    const existing = new Map(data.hypotheses.map((h) => [h.question.trim(), h.hypothesis]))
+    const updated = questions.map((q) => ({ question: q, hypothesis: existing.get(q) ?? '' }))
+    setData((p) => ({ ...p, hypotheses: updated }))
+    save({ hypotheses: updated })
+  }
+
+  function next() {
+    if (!canAdvance) return
+    if (step === 5) syncHypothesesFromSubQuestions()
+    setStep((s) => s + 1)
+  }
   function back() { setStep((s) => s - 1) }
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -183,6 +230,39 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
             {streamText}
           </div>
         )}
+      </div>
+    )
+  }
+
+  if (!running && data.status === 'error') {
+    return (
+      <div className="flex-1 overflow-y-auto p-6 max-w-3xl mx-auto w-full">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-lg text-destructive">Analysis failed</h3>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => { setData((p) => ({ ...p, status: 'draft' })); setRunError(null); setStep(6) }}
+          >
+            ← Back to edit
+          </Button>
+        </div>
+        <div className="border border-destructive/30 rounded-lg p-4 bg-destructive/5 text-sm whitespace-pre-wrap leading-relaxed mb-4">
+          {runError || data.reportMarkdown || 'An unknown error occurred.'}
+        </div>
+        {streamText && (
+          <>
+            <p className="text-xs text-muted-foreground mb-2">Partial output before the error:</p>
+            <div className="border rounded-lg p-4 bg-muted/20 text-sm whitespace-pre-wrap leading-relaxed mb-4">
+              {streamText}
+            </div>
+          </>
+        )}
+        <Button
+          onClick={() => { setData((p) => ({ ...p, status: 'draft' })); setRunError(null); runAnalysis() }}
+        >
+          Try again
+        </Button>
       </div>
     )
   }
@@ -339,10 +419,11 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
           <p className="text-sm text-muted-foreground mb-3">
             What specific questions need answering to address the core question?
           </p>
-          <Button variant="outline" size="sm" onClick={suggestQuestions} disabled={suggesting} className="mb-4">
+          <Button variant="outline" size="sm" onClick={suggestQuestions} disabled={suggesting} className="mb-2">
             {suggesting ? '✨ Generating…' : '✨ Suggest questions with AI'}
           </Button>
-          <div className="space-y-2">
+          {suggestErr && <p className="text-xs text-destructive mb-2">{suggestErr}</p>}
+          <div className="space-y-2 mt-2">
             {data.subQuestions.map((q, i) => (
               <div key={i} className="flex gap-2">
                 <Input value={q} onChange={(e) => { const updated = [...data.subQuestions]; updated[i] = e.target.value; setData((p) => ({ ...p, subQuestions: updated })) }}
@@ -360,9 +441,15 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
       {/* Step 6: Hypotheses */}
       {step === 6 && (
         <WizardStep title="What do you expect to find?" subtitle="Step 6 of 6 — Hypotheses">
-          <p className="text-sm text-muted-foreground mb-3">
-            Claude will actively try to <strong>disprove</strong> these — that's how we avoid confirmation bias.
+          <p className="text-sm text-muted-foreground mb-1">
+            For each question from Step 5, write down what you <strong>expect</strong> the answer to be.
+            Claude will actively try to <strong>disprove</strong> these — that&apos;s how we avoid confirmation bias.
           </p>
+          {data.subQuestions.some((q) => q.trim()) && (
+            <Button variant="ghost" size="sm" className="h-6 text-xs mb-3 px-0" onClick={syncHypothesesFromSubQuestions}>
+              ↻ Use questions from step 5
+            </Button>
+          )}
           <div className="space-y-4">
             {data.hypotheses.map((h, i) => (
               <div key={i} className="border rounded-lg p-4 space-y-3">

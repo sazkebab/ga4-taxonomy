@@ -142,12 +142,18 @@ Return ONLY a JSON array of strings, e.g. ["question 1", "question 2"]`,
     }],
   })
 
+  let text = (response.content[0] as { type: 'text'; text: string }).text.trim()
+
+  // Strip a wrapping ```json ... ``` (or plain ``` ... ```) code fence, if present.
+  const fenceMatch = text.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/)
+  if (fenceMatch) text = fenceMatch[1].trim()
+
   try {
-    let text = (response.content[0] as { type: 'text'; text: string }).text.trim()
-    if (text.startsWith('```')) text = text.split('\n', 2)[1].split('```')[0].trim()
-    return JSON.parse(text) as string[]
+    const parsed = JSON.parse(text)
+    if (Array.isArray(parsed)) return parsed.filter((q): q is string => typeof q === 'string')
+    throw new Error('response was not a JSON array')
   } catch {
-    return []
+    throw new Error(`AI returned an unexpected response: ${text.slice(0, 200)}`)
   }
 }
 
@@ -164,7 +170,12 @@ export async function* streamGuidedAnalysis(
 
   const accessToken = await getGoogleAccessToken()
   if (!accessToken) {
-    yield { type: 'error', message: 'No Google access token — please sign out and sign back in.' }
+    const message = 'No Google access token — please sign out and sign back in.'
+    await db.guidedAnalysis.update({
+      where: { id: data.id },
+      data: { status: 'error', reportMarkdown: `⚠️ ${message}` },
+    })
+    yield { type: 'error', message }
     return
   }
 

@@ -22,20 +22,28 @@ export async function POST(
     return NextResponse.json({ error: 'Set a core question first' }, { status: 400 })
   }
 
-  const questions = await suggestSubQuestions({
-    id:                  analysis.id,
-    projectId:           analysis.projectId,
-    coreQuestion:        analysis.coreQuestion,
-    useCase:             analysis.useCase,
-    stakeholderName:     analysis.stakeholderName,
-    stakeholderLiteracy: analysis.stakeholderLiteracy,
-    keyKpis:             JSON.parse(analysis.keyKpis),
-    insightDestination:  analysis.insightDestination,
-    preferredOutputStyle:analysis.preferredOutputStyle,
-    priorKnowledge:      analysis.priorKnowledge,
-    subQuestions:        JSON.parse(analysis.subQuestions),
-    hypotheses:          JSON.parse(analysis.hypotheses),
-  })
+  let questions: string[]
+  try {
+    questions = await suggestSubQuestions({
+      id:                  analysis.id,
+      projectId:           analysis.projectId,
+      coreQuestion:        analysis.coreQuestion,
+      useCase:             analysis.useCase,
+      stakeholderName:     analysis.stakeholderName,
+      stakeholderLiteracy: analysis.stakeholderLiteracy,
+      keyKpis:             JSON.parse(analysis.keyKpis),
+      insightDestination:  analysis.insightDestination,
+      preferredOutputStyle:analysis.preferredOutputStyle,
+      priorKnowledge:      analysis.priorKnowledge,
+      subQuestions:        JSON.parse(analysis.subQuestions),
+      hypotheses:          JSON.parse(analysis.hypotheses),
+    })
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 500 },
+    )
+  }
 
   await db.guidedAnalysis.update({
     where: { id: analysisId },

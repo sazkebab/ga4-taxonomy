@@ -43,8 +43,12 @@ export async function POST(
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
         }
       } catch (err) {
-        await db.guidedAnalysis.update({ where: { id: analysisId }, data: { status: 'error' } })
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', message: String(err) })}\n\n`))
+        const message = err instanceof Error ? err.message : String(err)
+        await db.guidedAnalysis.update({
+          where: { id: analysisId },
+          data: { status: 'error', reportMarkdown: `⚠️ Analysis failed: ${message}` },
+        })
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', message })}\n\n`))
       } finally {
         controller.close()
       }
