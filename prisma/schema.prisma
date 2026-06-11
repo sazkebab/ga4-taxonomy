@@ -215,6 +215,7 @@ model DataQualityReport {
   projectId      String
   status         String               @default("pending")  // pending | running | complete | error
   reportMarkdown String               @default("")
+  progressLog    String               @default("[]")        // JSON array of completed tool calls, for background-run progress polling
   weekStart      DateTime             @default(now())
   createdAt      DateTime             @default(now())
   completedAt    DateTime?
@@ -279,6 +280,7 @@ model GuidedAnalysis {
   hypotheses           String    @default("[]")        // JSON array of { question, hypothesis }
   // Result
   reportMarkdown       String    @default("")
+  progressLog          String    @default("[]")        // JSON array of completed tool calls, for background-run progress polling
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
   completedAt          DateTime?

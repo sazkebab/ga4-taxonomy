@@ -8,9 +8,21 @@ import QualitySettings from './QualitySettings'
 
 interface ReportSummary { id: string; status: string; weekStart: Date; createdAt: Date; completedAt: Date | null }
 interface Finding       { id: string; selection: string; action: string; response: string; status: string; createdAt: Date }
-interface FullReport    { id: string; status: string; reportMarkdown: string; weekStart: Date; findings: Finding[] }
+interface FullReport    { id: string; status: string; reportMarkdown: string; progressLog?: string; weekStart: Date; completedAt?: Date | null; findings: Finding[] }
 interface Suppression   { id: string; content: string; label: string; isActive: boolean; createdAt: Date }
 interface Prompt        { id: string; title: string; content: string; isActive: boolean; order: number }
+
+// Progress is persisted server-side as a JSON array of completed tool calls
+// so a polling client can show progress without a live SSE connection.
+function parseProgressLog(raw: string | undefined): { name: string }[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch { return [] }
+}
+
+const POLL_INTERVAL_MS = 3000
 
 interface Props {
   projectId:     string
@@ -56,9 +68,9 @@ export default function QualityClient({
   const [report,       setReport]      = useState(initialReport)
   const [suppressions, setSuppressions]= useState(initialSuppressions)
   const [prompts,      setPrompts]     = useState(initialPrompts)
-  const [running,      setRunning]     = useState(false)
-  const [streamText,   setStreamText]  = useState('')
   const [historyOpen,  setHistoryOpen] = useState(true)
+  const [creating,     setCreating]    = useState(false)
+  const [runError,     setRunError]    = useState<string | null>(null)
 
   async function deleteReport(reportId: string) {
     if (!confirm('Delete this report?')) return
@@ -66,71 +78,73 @@ export default function QualityClient({
     setReports((prev) => prev.filter((r) => r.id !== reportId))
     if (report?.id === reportId) {
       setReport(null)
-      setStreamText('')
       router.push('?tab=report')
     }
   }
 
-  // Sync report state when the server loads a different report (URL change)
-  useEffect(() => {
-    if (!running) {
+  // Sync report state when the server loads a different report (URL change) —
+  // but not while we're actively polling a run for the current report.
+  // Computed during render (React's "adjusting state when a prop changes"
+  // pattern) rather than in a useEffect, to avoid an extra render pass.
+  const [prevInitialReportId, setPrevInitialReportId] = useState(initialReport?.id)
+  if (initialReport?.id !== prevInitialReportId) {
+    setPrevInitialReportId(initialReport?.id)
+    if (report?.status !== 'running') {
       setReport(initialReport)
-      setStreamText('')
     }
-  }, [initialReport?.id])
-  const [activeTools,  setActiveTools] = useState<string[]>([])
-  const [creating,     setCreating]    = useState(false)
+  }
+
+  // Poll for progress/completion while a report is running in the background.
+  // This covers both "I just kicked one off" and "I reopened this page while
+  // one was already running".
+  useEffect(() => {
+    if (!report || report.status !== 'running') return
+    const reportId = report.id
+    let cancelled = false
+
+    async function tick() {
+      try {
+        const res = await fetch(`${apiBase}/quality/reports/${reportId}`)
+        if (!res.ok || cancelled) return
+        const json = await res.json()
+        if (cancelled) return
+        setReport((prev) => prev && prev.id === json.id ? { ...prev, ...json } : prev)
+        if (json.status === 'complete' || json.status === 'error') {
+          setReports((prev) => prev.map((r) => r.id === json.id ? { ...r, status: json.status, completedAt: json.completedAt } : r))
+          router.refresh()
+        }
+      } catch { /* network blip — try again next tick */ }
+    }
+
+    tick()
+    const id = setInterval(tick, POLL_INTERVAL_MS)
+    return () => { cancelled = true; clearInterval(id) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [report?.status, report?.id, apiBase])
 
   async function runMonitor() {
     setCreating(true)
+    setRunError(null)
     // Create report
     const res    = await fetch(`${apiBase}/quality/reports`, { method: 'POST' })
     const newRep = await res.json()
-    setReports((prev) => [newRep, ...prev])
-    setReport({ ...newRep, findings: [], reportMarkdown: '' })
-    setStreamText('')
-    setActiveTools([])
+    setReports((prev) => [{ ...newRep, status: 'running' }, ...prev])
+    setReport({ ...newRep, findings: [], reportMarkdown: '', progressLog: '[]', status: 'running' })
     setCreating(false)
-    setRunning(true)
 
-    // Run it
-    const runRes = await fetch(`${apiBase}/quality/reports/${newRep.id}/run`, { method: 'POST' })
-    if (!runRes.ok || !runRes.body) { setRunning(false); return }
-
-    const reader  = runRes.body.getReader()
-    const decoder = new TextDecoder()
-    let   buffer  = ''
-    let   fullMd  = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
-        try {
-          const event = JSON.parse(line.slice(6))
-          if (event.type === 'text') {
-            fullMd += event.delta
-            setStreamText((t) => t + event.delta)
-          } else if (event.type === 'tool_start') {
-            setActiveTools((prev) => [...prev, event.name])
-          } else if (event.type === 'tool_done') {
-            setActiveTools((prev) => prev.filter((t) => t !== event.name))
-          } else if (event.type === 'done') {
-            setReport((prev) => prev ? { ...prev, status: 'complete', reportMarkdown: fullMd } : prev)
-            setReports((prev) => prev.map((r) => r.id === newRep.id ? { ...r, status: 'complete' } : r))
-            router.refresh()
-          } else if (event.type === 'error') {
-            setReport((prev) => prev ? { ...prev, status: 'error' } : prev)
-          }
-        } catch { /* ignore */ }
+    // Kick off the run in the background — it keeps going even if this tab
+    // closes. The polling effect above takes over from here.
+    try {
+      const runRes = await fetch(`${apiBase}/quality/reports/${newRep.id}/run`, { method: 'POST' })
+      const json   = await runRes.json().catch(() => null)
+      if (!runRes.ok) {
+        setRunError(json?.error ?? `Request failed (${runRes.status})`)
+        setReport((prev) => prev && prev.id === newRep.id ? { ...prev, status: 'error', reportMarkdown: json?.error ? `⚠️ ${json.error}` : 'Failed to start' } : prev)
       }
+    } catch {
+      setRunError('Network error — could not reach the server')
+      setReport((prev) => prev && prev.id === newRep.id ? { ...prev, status: 'error', reportMarkdown: '⚠️ Network error — could not reach the server' } : prev)
     }
-    setRunning(false)
   }
 
   async function onFinding(selection: string, action: 'suppress' | 'drilldown') {
@@ -154,7 +168,9 @@ export default function QualityClient({
     }
   }
 
-  const displayMarkdown = streamText || report?.reportMarkdown || ''
+  const isRunning      = report?.status === 'running'
+  const toolsDone      = isRunning ? parseProgressLog(report?.progressLog) : []
+  const displayMarkdown = report?.reportMarkdown || ''
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -177,8 +193,8 @@ export default function QualityClient({
           >
             ⚙️ Settings
           </Button>
-          <Button onClick={runMonitor} disabled={running || creating || !hasGa4} size="sm">
-            {running ? '⚡ Running…' : creating ? 'Creating…' : '▶ Run now'}
+          <Button onClick={runMonitor} disabled={isRunning || creating || !hasGa4} size="sm">
+            {isRunning ? '⚡ Running…' : creating ? 'Creating…' : '▶ Run now'}
           </Button>
         </div>
       </div>
@@ -186,6 +202,12 @@ export default function QualityClient({
       {!hasGa4 && (
         <div className="mb-4 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-4 py-2.5">
           ⚠ No GA4 property configured — add one in <strong>GA4 Sync</strong> to enable monitoring.
+        </div>
+      )}
+
+      {runError && (
+        <div className="mb-4 text-sm text-destructive bg-destructive/5 border border-destructive/30 rounded px-4 py-2.5">
+          ⚠️ {runError}
         </div>
       )}
 
@@ -239,14 +261,23 @@ export default function QualityClient({
 
           {/* Report content */}
           <div>
-            {running && (
-              <div className="mb-4 space-y-1.5">
-                {activeTools.map((t) => (
-                  <div key={t} className="flex items-center gap-2 text-sm text-muted-foreground">
+            {isRunning && (
+              <div className="mb-4">
+                <p className="text-xs text-muted-foreground mb-2">
+                  This runs in the background — feel free to navigate away. Come back anytime to see progress.
+                </p>
+                <div className="space-y-1.5">
+                  {toolsDone.map((t, i) => (
+                    <div key={i} className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <span className="text-green-600">✓</span>
+                      {TOOL_LABELS[t.name] ?? t.name}
+                    </div>
+                  ))}
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <span className="animate-pulse">⚡</span>
-                    {TOOL_LABELS[t] ?? t}…
+                    Working…
                   </div>
-                ))}
+                </div>
               </div>
             )}
 
@@ -255,16 +286,16 @@ export default function QualityClient({
                 markdown={displayMarkdown}
                 findings={report?.findings ?? []}
                 onFinding={onFinding}
-                isRunning={running}
+                isRunning={isRunning}
               />
-            ) : (
+            ) : !isRunning ? (
               <div className="text-center py-20 text-muted-foreground">
                 <p className="text-4xl mb-3">📊</p>
                 <p className="font-medium">No report yet</p>
                 <p className="text-sm mt-1">Click <strong>Run now</strong> to generate your first data quality report.</p>
                 <p className="text-xs mt-3">The report checks core metrics, event inventory, key events, traffic sources and top pages — all compared week-over-week.</p>
               </div>
-            )}
+            ) : null}
           </div>
         </div>
       )}

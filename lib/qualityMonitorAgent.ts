@@ -13,13 +13,6 @@ import { TOOLS, executeTool } from '@/lib/analysisAgent'
 
 const MODEL = 'claude-sonnet-4-5'
 
-export type QualityStreamEvent =
-  | { type: 'text';       delta: string }
-  | { type: 'tool_start'; name: string }
-  | { type: 'tool_done';  name: string }
-  | { type: 'done' }
-  | { type: 'error';      message: string }
-
 // ─── System prompt ────────────────────────────────────────────────────────────
 
 async function buildMonitorPrompt(projectId: string): Promise<string> {
@@ -176,12 +169,27 @@ Be direct and actionable. A developer or analyst reading this should immediately
 End every report with a disclaimer section: "---\n*This report was generated automatically by a monitoring bot. All figures are pulled directly from GA4 and should be independently verified before acting on them.*"`
 }
 
-// ─── Streaming monitor run ─────────────────────────────────────────────────────
+// ─── Background monitor run ────────────────────────────────────────────────────
 
-export async function* streamQualityMonitor(
+/**
+ * Runs the full weekly data-quality monitor to completion, persisting progress
+ * to the DB as it goes (`reportMarkdown` after each turn, `progressLog` after
+ * each tool call). Designed to be kicked off "fire and forget" from a route
+ * handler so the run keeps going even if the client disconnects — the frontend
+ * polls the `DataQualityReport` record for live progress instead of consuming
+ * an SSE stream.
+ *
+ * The Google access token must be resolved by the caller (request-scoped
+ * `auth()` isn't safe to call from a detached background task) and passed in.
+ *
+ * Throws on error — the caller is responsible for catching it and persisting
+ * `status: 'error'`.
+ */
+export async function runQualityMonitor(
   reportId: string,
   projectId: string,
-): AsyncGenerator<QualityStreamEvent> {
+  accessToken: string,
+): Promise<void> {
   const project = await db.project.findUnique({
     where: { id: projectId },
     select: { ga4PropertyId: true },
@@ -189,14 +197,7 @@ export async function* streamQualityMonitor(
   const propertyId = project?.ga4PropertyId ?? ''
 
   if (!propertyId) {
-    yield { type: 'error', message: 'No GA4 property ID set for this project. Add one in GA4 Sync.' }
-    return
-  }
-
-  const accessToken = await getGoogleAccessToken()
-  if (!accessToken) {
-    yield { type: 'error', message: 'No Google access token — please sign out and sign back in.' }
-    return
+    throw new Error('No GA4 property ID set for this project. Add one in GA4 Sync.')
   }
 
   const systemPrompt  = await buildMonitorPrompt(projectId)
@@ -207,6 +208,7 @@ export async function* streamQualityMonitor(
     { role: 'user', content: initialMessage },
   ]
   let fullReport = ''
+  const progress: { name: string }[] = []
 
   while (true) {
     let responseText    = ''
@@ -227,12 +229,10 @@ export async function* streamQualityMonitor(
       if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
         currentToolUse   = { id: event.content_block.id, name: event.content_block.name }
         currentInputJson = ''
-        yield { type: 'tool_start', name: currentToolUse.name }
       } else if (event.type === 'content_block_delta') {
         if (event.delta.type === 'text_delta') {
           responseText += event.delta.text
           fullReport   += event.delta.text
-          yield { type: 'text', delta: event.delta.text }
         } else if (event.delta.type === 'input_json_delta') {
           currentInputJson += event.delta.partial_json
         }
@@ -244,6 +244,11 @@ export async function* streamQualityMonitor(
       } else if (event.type === 'message_delta') {
         stopReason = event.delta.stop_reason ?? null
       }
+    }
+
+    // Persist the report-so-far after every turn so a polling client sees progress.
+    if (responseText) {
+      await db.dataQualityReport.update({ where: { id: reportId }, data: { reportMarkdown: fullReport } })
     }
 
     const assistantContent: Anthropic.MessageParam['content'] = []
@@ -260,7 +265,8 @@ export async function* streamQualityMonitor(
     const toolResults: Anthropic.ToolResultBlockParam[] = []
     for (const tu of toolUses) {
       const result = await executeTool(tu.name, tu.input, projectId, accessToken, propertyId)
-      yield { type: 'tool_done', name: tu.name }
+      progress.push({ name: tu.name })
+      await db.dataQualityReport.update({ where: { id: reportId }, data: { progressLog: JSON.stringify(progress) } })
       toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: result })
     }
     conversation.push({ role: 'user', content: toolResults })
@@ -271,8 +277,6 @@ export async function* streamQualityMonitor(
     where: { id: reportId },
     data: { status: 'complete', reportMarkdown: fullReport, completedAt: new Date() },
   })
-
-  yield { type: 'done' }
 }
 
 // ─── Drill-down ───────────────────────────────────────────────────────────────

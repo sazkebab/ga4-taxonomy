@@ -1,26 +1,43 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { auth } from '@/auth'
 import { requireProjectAccess } from '@/lib/access'
-import { streamGuidedAnalysis } from '@/lib/guidedAnalysisAgent'
+import { getGoogleAccessToken } from '@/lib/token'
+import { runGuidedAnalysis } from '@/lib/guidedAnalysisAgent'
 
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ projectId: string; analysisId: string }> },
 ) {
   const session = await auth()
-  if (!session?.user?.id) return new Response('Unauthorized', { status: 401 })
+  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { projectId, analysisId } = await params
   try { await requireProjectAccess(session.user.id, projectId) }
-  catch { return new Response('Forbidden', { status: 403 }) }
+  catch { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
 
   const analysis = await db.guidedAnalysis.findUnique({ where: { id: analysisId } })
-  if (!analysis || analysis.projectId !== projectId) return new Response('Not found', { status: 404 })
-  if (!analysis.coreQuestion) return new Response('Complete the wizard first', { status: 400 })
+  if (!analysis || analysis.projectId !== projectId) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (!analysis.coreQuestion) return NextResponse.json({ error: 'Complete the wizard first' }, { status: 400 })
+  if (analysis.status === 'running') return NextResponse.json({ status: 'running' })
 
-  await db.guidedAnalysis.update({ where: { id: analysisId }, data: { status: 'running', reportMarkdown: '' } })
+  // The Google access token depends on the request-scoped session (`auth()`),
+  // so it must be resolved here — before we hand off to the detached
+  // background task below, which keeps running after this response is sent.
+  const accessToken = await getGoogleAccessToken()
+  if (!accessToken) {
+    const message = 'No Google access token — please sign out and sign back in.'
+    await db.guidedAnalysis.update({
+      where: { id: analysisId },
+      data: { status: 'error', reportMarkdown: `⚠️ ${message}` },
+    })
+    return NextResponse.json({ error: message }, { status: 401 })
+  }
 
-  const encoder = new TextEncoder()
+  await db.guidedAnalysis.update({
+    where: { id: analysisId },
+    data: { status: 'running', reportMarkdown: '', progressLog: '[]' },
+  })
+
   const data = {
     id:                  analysis.id,
     projectId:           analysis.projectId,
@@ -36,26 +53,16 @@ export async function POST(
     hypotheses:          JSON.parse(analysis.hypotheses),
   }
 
-  const stream = new ReadableStream({
-    async start(controller) {
-      try {
-        for await (const event of streamGuidedAnalysis(data)) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        await db.guidedAnalysis.update({
-          where: { id: analysisId },
-          data: { status: 'error', reportMarkdown: `⚠️ Analysis failed: ${message}` },
-        })
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', message })}\n\n`))
-      } finally {
-        controller.close()
-      }
-    },
+  // Run in the background — keeps going even if the client closes the tab,
+  // navigates away, or refreshes. The frontend polls GET .../guided/[id] for
+  // progress (reportMarkdown / progressLog) and final status.
+  void runGuidedAnalysis(data, accessToken).catch(async (err) => {
+    const message = err instanceof Error ? err.message : String(err)
+    await db.guidedAnalysis.update({
+      where: { id: analysisId },
+      data: { status: 'error', reportMarkdown: `⚠️ Analysis failed: ${message}` },
+    }).catch(() => {})
   })
 
-  return new Response(stream, {
-    headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' },
-  })
+  return NextResponse.json({ status: 'running' })
 }

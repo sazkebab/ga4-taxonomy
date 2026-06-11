@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -24,6 +24,7 @@ interface Analysis {
   hypotheses:          Hypothesis[]
   status:              string
   reportMarkdown:      string
+  progressLog?:        string
 }
 
 interface Props {
@@ -58,6 +59,18 @@ const TOOL_LABELS: Record<string, string> = {
   search_documents:     'Searching research documents',
 }
 
+// Progress is persisted server-side as a JSON array of completed tool calls
+// so a polling client can show progress without a live SSE connection.
+function parseProgressLog(raw: string | undefined): { name: string; summary?: string }[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch { return [] }
+}
+
+const POLL_INTERVAL_MS = 3000
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onComplete, onStatusChange }: Props) {
@@ -74,11 +87,7 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
   const [saving,       setSaving]       = useState(false)
   const [suggesting,   setSuggesting]   = useState(false)
   const [suggestErr,   setSuggestErr]   = useState<string | null>(null)
-  const [running,      setRunning]      = useState(false)
   const [runError,     setRunError]     = useState<string | null>(null)
-  const [streamText,   setStreamText]   = useState('')
-  const [activeToolName, setActiveTool] = useState<string | null>(null)
-  const [toolsDone,    setToolsDone]    = useState<string[]>([])
   const [kpiInput,     setKpiInput]     = useState('')
 
   const save = useCallback(async (patch: Partial<Analysis>) => {
@@ -113,71 +122,64 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
   }
 
   async function runAnalysis() {
-    setRunning(true)
-    setStreamText('')
-    setToolsDone([])
     setRunError(null)
+    setData((prev) => ({ ...prev, status: 'running', reportMarkdown: '', progressLog: '[]' }))
     onStatusChange('running')
 
-    let res: Response
     try {
-      res = await fetch(`${apiBase}/analysis/guided/${data.id}/run`, { method: 'POST' })
+      const res  = await fetch(`${apiBase}/analysis/guided/${data.id}/run`, { method: 'POST' })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) {
+        setRunError(json?.error ?? `Request failed (${res.status})`)
+        setData((prev) => ({ ...prev, status: 'error' }))
+        onStatusChange('error')
+        return
+      }
     } catch {
       setRunError('Network error — could not reach the server')
       setData((prev) => ({ ...prev, status: 'error' }))
       onStatusChange('error')
-      setRunning(false)
       return
     }
-
-    if (!res.ok || !res.body) {
-      const text = await res.text().catch(() => '')
-      setRunError(text || `Request failed (${res.status})`)
-      setData((prev) => ({ ...prev, status: 'error' }))
-      onStatusChange('error')
-      setRunning(false)
-      return
-    }
-
-    const reader  = res.body.getReader()
-    const decoder = new TextDecoder()
-    let   buffer  = ''
-    let   report  = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
-        try {
-          const event = JSON.parse(line.slice(6))
-          if (event.type === 'text') {
-            report += event.delta
-            setStreamText((t) => t + event.delta)
-          } else if (event.type === 'tool_start') {
-            setActiveTool(event.name)
-          } else if (event.type === 'tool_done') {
-            setActiveTool(null)
-            setToolsDone((prev) => [...prev, event.name])
-          } else if (event.type === 'done') {
-            setData((prev) => ({ ...prev, status: 'complete', reportMarkdown: report }))
-            onStatusChange('complete')
-            onComplete(report)
-            setStep(7)
-          } else if (event.type === 'error') {
-            setRunError(event.message ?? 'An unknown error occurred')
-            setData((prev) => ({ ...prev, status: 'error' }))
-            onStatusChange('error')
-          }
-        } catch { /* ignore */ }
-      }
-    }
-    setRunning(false)
+    // Started successfully — the polling effect below picks up progress and
+    // final status, including if the page is closed and reopened later.
   }
+
+  // Poll for progress/completion while the analysis is running in the
+  // background. This covers both "I just started it" and "I reopened this
+  // page while it was already running".
+  useEffect(() => {
+    if (data.status !== 'running') return
+    let cancelled = false
+
+    async function tick() {
+      try {
+        const res = await fetch(`${apiBase}/analysis/guided/${data.id}`)
+        if (!res.ok || cancelled) return
+        const json = await res.json()
+        if (cancelled) return
+        setData((prev) => ({
+          ...prev,
+          status:         json.status,
+          reportMarkdown: json.reportMarkdown ?? prev.reportMarkdown,
+          progressLog:    json.progressLog ?? prev.progressLog,
+        }))
+        if (json.status === 'complete') {
+          onStatusChange('complete')
+          onComplete(json.reportMarkdown)
+          setStep(7)
+        } else if (json.status === 'error') {
+          onStatusChange('error')
+          setStep(6)
+        }
+      } catch { /* network blip — try again next tick */ }
+    }
+
+    tick()
+    const id = setInterval(tick, POLL_INTERVAL_MS)
+    return () => { cancelled = true; clearInterval(id) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.status, data.id, apiBase])
 
   // ── Step navigation ──────────────────────────────────────────────────────
 
@@ -207,34 +209,36 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
 
   // ── Render ───────────────────────────────────────────────────────────────
 
-  if (running || (data.status === 'running' && !streamText)) {
+  if (data.status === 'running') {
+    const toolsDone = parseProgressLog(data.progressLog)
     return (
       <div className="flex-1 overflow-y-auto p-6 max-w-3xl mx-auto w-full">
-        <h3 className="font-semibold text-lg mb-4">Running analysis…</h3>
+        <h3 className="font-semibold text-lg mb-1">Running analysis…</h3>
+        <p className="text-xs text-muted-foreground mb-4">
+          This runs in the background — feel free to close this tab or navigate away. Come back here anytime to see progress.
+        </p>
         <div className="space-y-2 mb-6">
           {toolsDone.map((t, i) => (
             <div key={i} className="flex items-center gap-2 text-sm text-muted-foreground">
               <span className="text-green-600">✓</span>
-              {TOOL_LABELS[t] ?? t}
+              {TOOL_LABELS[t.name] ?? t.name}
             </div>
           ))}
-          {activeToolName && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span className="animate-pulse">⚡</span>
-              {TOOL_LABELS[activeToolName] ?? activeToolName}…
-            </div>
-          )}
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span className="animate-pulse">⚡</span>
+            Working…
+          </div>
         </div>
-        {streamText && (
+        {data.reportMarkdown && (
           <div className="border rounded-lg p-4 bg-muted/20 text-sm whitespace-pre-wrap leading-relaxed">
-            {streamText}
+            {data.reportMarkdown}
           </div>
         )}
       </div>
     )
   }
 
-  if (!running && data.status === 'error') {
+  if (data.status === 'error') {
     return (
       <div className="flex-1 overflow-y-auto p-6 max-w-3xl mx-auto w-full">
         <div className="flex items-center justify-between mb-4">
@@ -250,14 +254,6 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
         <div className="border border-destructive/30 rounded-lg p-4 bg-destructive/5 text-sm whitespace-pre-wrap leading-relaxed mb-4">
           {runError || data.reportMarkdown || 'An unknown error occurred.'}
         </div>
-        {streamText && (
-          <>
-            <p className="text-xs text-muted-foreground mb-2">Partial output before the error:</p>
-            <div className="border rounded-lg p-4 bg-muted/20 text-sm whitespace-pre-wrap leading-relaxed mb-4">
-              {streamText}
-            </div>
-          </>
-        )}
         <Button
           onClick={() => { setData((p) => ({ ...p, status: 'draft' })); setRunError(null); runAnalysis() }}
         >
@@ -275,7 +271,7 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
           <Button variant="outline" size="sm" onClick={() => setStep(6)}>← Edit</Button>
         </div>
         <div className="border rounded-lg p-6 bg-background text-sm whitespace-pre-wrap leading-relaxed">
-          {data.reportMarkdown || streamText}
+          {data.reportMarkdown}
         </div>
       </div>
     )
@@ -484,8 +480,8 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
           {step < 6 ? (
             <Button onClick={next} disabled={!canAdvance}>Next →</Button>
           ) : (
-            <Button onClick={runAnalysis} disabled={running || !data.coreQuestion}>
-              {running ? 'Running…' : '🔬 Run analysis'}
+            <Button onClick={runAnalysis} disabled={data.status === 'running' || !data.coreQuestion}>
+              {data.status === 'running' ? 'Running…' : '🔬 Run analysis'}
             </Button>
           )}
         </div>

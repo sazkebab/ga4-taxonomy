@@ -18,6 +18,7 @@ interface GuidedAnalysis {
   priorKnowledge: string; subQuestions: string[]
   hypotheses: { question: string; hypothesis: string }[]
   reportMarkdown: string
+  progressLog: string
 }
 
 interface Props {
