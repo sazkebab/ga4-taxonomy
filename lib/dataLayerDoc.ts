@@ -174,3 +174,33 @@ export function generateCodeBlock(
 
   return `dataLayer.push({\n${lines.join('\n')}\n});`
 }
+
+// ─── Re-indentation ────────────────────────────────────────────────────────────
+
+/**
+ * Lightweight re-indenter for hand-edited dataLayer.push() blocks.
+ *
+ * Not a full JS formatter — just normalises indentation based on bracket
+ * nesting, using the same convention as generateCodeBlock(): a leading run
+ * of closing brackets (}, ], )) dedents by one level regardless of how many
+ * characters are in the run (so a `});` line only dedents once, matching how
+ * `dataLayer.push({ ... })` is indented), and a trailing run of opening
+ * brackets ({, [, () indents subsequent lines by one level.
+ */
+export function reindentCodeBlock(code: string, indent = '  '): string {
+  let depth = 0
+
+  return code.split('\n').map((rawLine) => {
+    const line = rawLine.trim()
+    if (line === '') return ''
+
+    const leadingClose = '}])'.includes(line[0])
+    const lineDepth = Math.max(0, depth - (leadingClose ? 1 : 0))
+    const formatted = indent.repeat(lineDepth) + line
+    depth = lineDepth
+
+    if ('{[('.includes(line[line.length - 1])) depth += 1
+
+    return formatted
+  }).join('\n')
+}

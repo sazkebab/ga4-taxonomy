@@ -11,7 +11,6 @@ import CommentsPanel from './CommentsPanel'
 import ScreenshotPanel from './ScreenshotPanel'
 import EcommerceEditor from './EcommerceEditor'
 import EcommerceFieldsTable from './EcommerceFieldsTable'
-import TestingPanel from './TestingPanel'
 import type { Section, Screenshot } from './types'
 
 interface Props {
@@ -304,18 +303,6 @@ export default function DataLayerSectionCard({
             onRemoveParam={handleRemoveParam}
           />
         )}
-
-        {/* Testing panel */}
-        <TestingPanel
-          sectionId={section.id}
-          eventName={section.event.name}
-          category={section.event.category ?? ''}
-          trigger={section.event.trigger ?? ''}
-          testUrl={section.testUrl ?? ''}
-          parameters={section.event.parameters ?? []}
-          sectionUrl={sectionUrl}
-          onUpdate={(testUrl) => onUpdate({ testUrl })}
-        />
 
         {/* Status controls */}
         <StatusControls

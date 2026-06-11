@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
+import { reindentCodeBlock } from '@/lib/dataLayerDoc'
 
 interface Props {
   sectionId: string
@@ -79,7 +80,11 @@ export default function CodeBlockEditor({ sectionId: _, codeBlock: initialCode, 
         rows={Math.max(4, code.split('\n').length + 1)}
         value={code}
         onChange={(e) => setCode(e.target.value)}
-        onBlur={(e) => saveCodeBlock(e.target.value)}
+        onBlur={(e) => {
+          const formatted = reindentCodeBlock(e.target.value)
+          if (formatted !== e.target.value) setCode(formatted)
+          saveCodeBlock(formatted)
+        }}
         spellCheck={false}
       />
     </div>
