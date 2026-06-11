@@ -10,6 +10,7 @@ interface ImportResult {
   found:     number
   matched:   number
   imported:  number
+  created:   string[]
   unmatched: string[]
 }
 
@@ -85,6 +86,11 @@ export default function GoogleDocImport({ apiBase }: Props) {
         <span className="font-medium text-green-800">
           Import complete — {result.imported} event{result.imported !== 1 ? 's' : ''} updated
         </span>
+        {result.created.length > 0 && (
+          <span className="text-blue-700 text-xs">
+            {result.created.length} new event{result.created.length !== 1 ? 's' : ''} added to taxonomy: {result.created.slice(0, 4).join(', ')}{result.created.length > 4 ? '…' : ''}
+          </span>
+        )}
         {result.unmatched.length > 0 && (
           <span className="text-amber-700 text-xs">
             {result.unmatched.length} not matched: {result.unmatched.slice(0, 4).join(', ')}{result.unmatched.length > 4 ? '…' : ''}

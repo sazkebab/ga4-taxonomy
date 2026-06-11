@@ -3,10 +3,13 @@
  * Body: { url: string }
  *
  * Fetches a Google Doc by URL, parses its dataLayer documentation structure,
- * and upserts DataLayerSections + DataLayerParamNotes for matched events.
+ * and upserts DataLayerSections + DataLayerParamNotes for every section found.
+ * Sections that don't match an existing taxonomy event get a brand-new Event
+ * created (category auto-detected from the event name), so nothing in the
+ * doc is silently dropped.
  *
  * Returns:
- *   { matched: number, imported: number, unmatched: string[], noScope: boolean }
+ *   { found: number, matched: number, imported: number, created: string[], unmatched: string[], noScope: boolean }
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
@@ -16,6 +19,7 @@ import { auth } from '@/auth'
 import { requireProjectAccess } from '@/lib/access'
 import { getGoogleAccessToken } from '@/lib/token'
 import { parseGoogleDoc, extractDocId, normaliseEventNameCandidates } from '@/lib/parseGoogleDoc'
+import { detectCategory, generateCodeBlock, getDefaultEcommerceJson, type ParamForBlock } from '@/lib/dataLayerDoc'
 
 const bodySchema = z.object({
   url: z.string().min(1),
@@ -122,15 +126,64 @@ export async function POST(
 
   // ── Process each parsed section ───────────────────────────────────────────────
   const unmatched: string[] = []
+  const created: string[] = []
   let imported = 0
 
   for (const section of parsedSections) {
     const candidates = normaliseEventNameCandidates(section.eventName)
-    const event      = candidates.map((c) => eventMap.get(c)).find(Boolean)
+    let event = candidates.map((c) => eventMap.get(c)).find(Boolean)
+
+    let isNewEvent = false
+    let category   = ''
+    const linkedParams: ParamForBlock[] = []
 
     if (!event) {
-      unmatched.push(section.eventName)
-      continue
+      // No matching event in the taxonomy — create one so nothing from the
+      // doc gets dropped, categorising it from the event name itself.
+      isNewEvent = true
+      category   = detectCategory(section.eventName)
+
+      const newEvent = await db.event.create({
+        data: {
+          projectId,
+          name:              section.eventName,
+          category,
+          trigger:           section.trigger,
+          requiresDataLayer: true,
+        },
+        select: { id: true, name: true, trigger: true },
+      })
+      for (const c of normaliseEventNameCandidates(newEvent.name)) eventMap.set(c, newEvent)
+      event = newEvent
+      created.push(section.eventName)
+
+      // Register any documented parameters in the project's parameter taxonomy too
+      for (const param of section.params) {
+        if (!param.name) continue
+
+        let parameter = await db.parameter.findUnique({
+          where: { projectId_name: { projectId, name: param.name } },
+        })
+        if (!parameter) {
+          parameter = await db.parameter.create({
+            data: { projectId, name: param.name, description: param.notes, example: param.example },
+          })
+        } else {
+          const updates: Record<string, string> = {}
+          if (!parameter.description && param.notes)   updates.description = param.notes
+          if (!parameter.example && param.example)     updates.example     = param.example
+          if (Object.keys(updates).length > 0) {
+            parameter = await db.parameter.update({ where: { id: parameter.id }, data: updates })
+          }
+        }
+
+        await db.eventParameter.upsert({
+          where:  { eventId_parameterId: { eventId: event.id, parameterId: parameter.id } },
+          update: {},
+          create: { eventId: event.id, parameterId: parameter.id },
+        })
+        linkedParams.push({ name: parameter.name, example: parameter.example, type: parameter.type })
+      }
     }
 
     // Update event trigger if it's currently empty
@@ -163,13 +216,20 @@ export async function POST(
     } else {
       // Get order from alphabetical position among existing sections
       const sectionCount = await db.dataLayerSection.count({ where: { docId: doc.id } })
+      const isEcom        = category.toLowerCase() === 'ecommerce'
+      const ecommerceJson = isEcom ? getDefaultEcommerceJson(event.name) : ''
+      const codeBlock     = section.codeBlock || (isNewEvent
+        ? generateCodeBlock(event.name, linkedParams, { category, ecommerceJson: ecommerceJson || undefined })
+        : '')
+
       await db.dataLayerSection.create({
         data: {
           docId:               doc.id,
           eventId:             event.id,
           order:               sectionCount,
-          codeBlock:           section.codeBlock,
+          codeBlock,
           codeBlockCustomised: section.codeBlock !== '',
+          ecommerceJson,
         },
       })
     }
@@ -198,6 +258,7 @@ export async function POST(
     found:     parsedSections.length,
     matched:   imported,
     imported,
+    created,
     unmatched,
   })
 }
