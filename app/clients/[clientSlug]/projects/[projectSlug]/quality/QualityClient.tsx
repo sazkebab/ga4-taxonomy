@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import SelectableReport from './SelectableReport'
+import SelectableReport from '../SelectableReport'
 import QualitySettings from './QualitySettings'
 
 interface ReportSummary { id: string; status: string; weekStart: Date; createdAt: Date; completedAt: Date | null }

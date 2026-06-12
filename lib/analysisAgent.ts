@@ -9,6 +9,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { db } from '@/lib/db'
 import { getGoogleAccessToken } from '@/lib/token'
 import * as ga4 from '@/lib/ga4Report'
+import { getPropertyCurrency } from '@/lib/ga4'
 
 const MODEL = 'claude-sonnet-4-5'
 
@@ -40,9 +41,32 @@ export function getCurrentDateContext(): string {
 Today is ${weekday}, ${isoDate} (Australia/Sydney time). When the user asks for a relative period — "last month", "this week", "last quarter", "year to date", etc. — compute the actual start_date/end_date from this date; don't guess based on your training data. For ranges anchored to today you can also use GA4's relative date strings ('today', 'yesterday', 'NdaysAgo').`
 }
 
+// ─── Currency context ────────────────────────────────────────────────────────
+
+/**
+ * Tells Claude which currency to use for monetary figures (revenue, average
+ * order value, opportunity sizing, etc.) — based on the GA4 property's
+ * actual configured currency, not an assumed one.
+ */
+export function getCurrencyContext(currencyCode: string): string {
+  const symbol = (() => {
+    try {
+      return new Intl.NumberFormat('en', { style: 'currency', currency: currencyCode, currencyDisplay: 'narrowSymbol' })
+        .formatToParts(1)
+        .find((p) => p.type === 'currency')?.value ?? currencyCode
+    } catch {
+      return currencyCode
+    }
+  })()
+
+  return `## Currency
+
+This GA4 property's configured currency is **${currencyCode}** (${symbol}). All monetary figures returned by the GA4 tools (revenue, average order value, etc.) are already in this currency. When writing or estimating monetary figures yourself — e.g. revenue opportunity sizing, "X opportunity" framing — use "${symbol}" or "${currencyCode}", never a different currency symbol.`
+}
+
 // ─── System prompt ───────────────────────────────────────────────────────────
 
-async function buildSystemPrompt(projectId: string): Promise<string> {
+async function buildSystemPrompt(projectId: string, currencyCode: string): Promise<string> {
   const [project, events, documents] = await Promise.all([
     db.project.findUnique({
       where: { id: projectId },
@@ -109,6 +133,8 @@ When answering:
 - Prioritise issues by severity × frequency × revenue impact
 
 ${getCurrentDateContext()}
+
+${getCurrencyContext(currencyCode)}
 
 ## Event taxonomy for this project
 
@@ -323,7 +349,8 @@ export async function* streamAnalysis(
   messages.push({ role: 'user', content: userMessage })
 
   // Build system prompt (includes taxonomy + doc list)
-  const systemPrompt = await buildSystemPrompt(projectId)
+  const currencyCode = await getPropertyCurrency(accessToken, propertyId)
+  const systemPrompt = await buildSystemPrompt(projectId, currencyCode)
 
   const client = new Anthropic()
   const toolCallsForMessage: ToolCall[] = []

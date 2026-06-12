@@ -11,6 +11,7 @@ interface Chat           { id: string; title: string; updatedAt: Date }
 interface Document       { id: string; title: string; sourceType: string; source: string; createdAt: Date; content: string }
 interface GuidedSummary  { id: string; status: string; coreQuestion: string; useCase: string; updatedAt: Date }
 interface Message        { id: string; role: string; content: string; toolCalls: { name: string; summary: string }[]; createdAt: Date }
+interface Finding        { id: string; selection: string; action: string; response: string; status: string }
 interface GuidedAnalysis {
   id: string; status: string; coreQuestion: string; useCase: string
   stakeholderName: string; stakeholderLiteracy: string
@@ -19,6 +20,7 @@ interface GuidedAnalysis {
   hypotheses: { question: string; hypothesis: string }[]
   reportMarkdown: string
   progressLog: string
+  findings: Finding[]
 }
 
 interface Props {

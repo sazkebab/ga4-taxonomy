@@ -11,3 +11,20 @@ export function getGA4Clients(accessToken: string) {
 
   return { dataClient, adminClient }
 }
+
+/**
+ * Fetch the GA4 property's configured currency code (ISO 4217, e.g. "AUD",
+ * "GBP", "USD") via the Admin API, so reports can use the property's actual
+ * currency instead of assuming one. Falls back to "USD" if no property is
+ * configured or the lookup fails (e.g. insufficient permissions).
+ */
+export async function getPropertyCurrency(accessToken: string, propertyId: string): Promise<string> {
+  if (!propertyId) return 'USD'
+  try {
+    const { adminClient } = getGA4Clients(accessToken)
+    const [property] = await adminClient.getProperty({ name: `properties/${propertyId}` })
+    return property?.currencyCode || 'USD'
+  } catch {
+    return 'USD'
+  }
+}

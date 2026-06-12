@@ -47,7 +47,10 @@ export default async function AnalysisPage({
 
   // Load current guided analysis if selected
   const currentGuided = tab === 'guided' && chatId
-    ? await db.guidedAnalysis.findUnique({ where: { id: chatId } })
+    ? await db.guidedAnalysis.findUnique({
+        where: { id: chatId },
+        include: { findings: { orderBy: { createdAt: 'asc' } } },
+      })
     : null
 
   const hasGa4 = !!project.ga4PropertyId

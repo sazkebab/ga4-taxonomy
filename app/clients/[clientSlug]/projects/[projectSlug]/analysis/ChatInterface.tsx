@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { MarkdownRenderer } from '../MarkdownRenderer'
 
 interface ToolCall { name: string; summary: string }
 interface Message {
@@ -148,8 +149,8 @@ export default function ChatInterface({ apiBase, chatId, initialMessages, hasGa4
                 )}
                 {/* Message text */}
                 {msg.content && (
-                  <div className="bg-muted/30 rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap">
-                    {msg.content}
+                  <div className="bg-muted/30 rounded-2xl rounded-tl-sm px-4 py-3">
+                    <MarkdownRenderer markdown={msg.content} />
                   </div>
                 )}
               </div>
@@ -172,7 +173,7 @@ export default function ChatInterface({ apiBase, chatId, initialMessages, hasGa4
       <div className="border-t p-4">
         {!hasGa4 && (
           <p className="text-xs text-amber-600 mb-2">
-            ⚠ No GA4 property configured — GA4 queries won't work until you add one in GA4 Sync
+            ⚠ No GA4 property configured — GA4 queries won&apos;t work until you add one in GA4 Sync
           </p>
         )}
         <div className="flex gap-2 items-end">

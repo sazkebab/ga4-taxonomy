@@ -5,10 +5,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import SelectableReport from '../SelectableReport'
+import { MarkdownRenderer } from '../MarkdownRenderer'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Hypothesis { question: string; hypothesis: string }
+interface Finding    { id: string; selection: string; action: string; response: string; status: string }
 
 interface Analysis {
   id:                  string
@@ -25,6 +28,7 @@ interface Analysis {
   status:              string
   reportMarkdown:      string
   progressLog?:        string
+  findings?:           Finding[]
 }
 
 interface Props {
@@ -181,6 +185,20 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.status, data.id, apiBase])
 
+  // Highlight a passage in the finished report and ask Claude to dig into it —
+  // pulls fresh GA4 data scoped to that passage and shows the result inline.
+  async function onFinding(selection: string, action: 'suppress' | 'drilldown') {
+    if (action !== 'drilldown') return
+    const res  = await fetch(`${apiBase}/analysis/guided/${data.id}/findings`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ selection, action }),
+    })
+    const json = await res.json().catch(() => null)
+    if (!res.ok || !json?.finding) return
+    setData((prev) => ({ ...prev, findings: [...(prev.findings ?? []), json.finding] }))
+  }
+
   // ── Step navigation ──────────────────────────────────────────────────────
 
   const canAdvance = (() => {
@@ -230,8 +248,8 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
           </div>
         </div>
         {data.reportMarkdown && (
-          <div className="border rounded-lg p-4 bg-muted/20 text-sm whitespace-pre-wrap leading-relaxed">
-            {data.reportMarkdown}
+          <div className="border rounded-lg p-4 bg-muted/20">
+            <MarkdownRenderer markdown={data.reportMarkdown} />
           </div>
         )}
       </div>
@@ -251,8 +269,14 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
             ← Back to edit
           </Button>
         </div>
-        <div className="border border-destructive/30 rounded-lg p-4 bg-destructive/5 text-sm whitespace-pre-wrap leading-relaxed mb-4">
-          {runError || data.reportMarkdown || 'An unknown error occurred.'}
+        <div className="border border-destructive/30 rounded-lg p-4 bg-destructive/5 mb-4">
+          {runError ? (
+            <p className="text-sm whitespace-pre-wrap leading-relaxed">{runError}</p>
+          ) : data.reportMarkdown ? (
+            <MarkdownRenderer markdown={data.reportMarkdown} />
+          ) : (
+            <p className="text-sm leading-relaxed">An unknown error occurred.</p>
+          )}
         </div>
         <Button
           onClick={() => { setData((p) => ({ ...p, status: 'draft' })); setRunError(null); runAnalysis() }}
@@ -270,8 +294,17 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
           <h3 className="font-semibold text-lg">Analysis report</h3>
           <Button variant="outline" size="sm" onClick={() => setStep(6)}>← Edit</Button>
         </div>
-        <div className="border rounded-lg p-6 bg-background text-sm whitespace-pre-wrap leading-relaxed">
-          {data.reportMarkdown}
+        <p className="text-xs text-muted-foreground mb-3">
+          Highlight any part of the report to ask for more detail or see the underlying data.
+        </p>
+        <div className="border rounded-lg p-6 bg-background">
+          <SelectableReport
+            markdown={data.reportMarkdown}
+            findings={data.findings ?? []}
+            onFinding={onFinding}
+            isRunning={false}
+            showSuppress={false}
+          />
         </div>
       </div>
     )

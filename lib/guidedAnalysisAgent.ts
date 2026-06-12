@@ -7,7 +7,9 @@
  */
 import Anthropic from '@anthropic-ai/sdk'
 import { db } from '@/lib/db'
-import { TOOLS, executeTool, getCurrentDateContext } from '@/lib/analysisAgent'
+import { getGoogleAccessToken } from '@/lib/token'
+import { getPropertyCurrency } from '@/lib/ga4'
+import { TOOLS, executeTool, getCurrentDateContext, getCurrencyContext } from '@/lib/analysisAgent'
 
 const MODEL = 'claude-sonnet-4-5'
 
@@ -18,7 +20,7 @@ const USE_CASE_FRAMING: Record<string, string> = {
   run_experiments:     'Frame every insight as a testable A/B hypothesis with: control, variant, primary metric, minimum detectable effect, and estimated sample size.',
   change_campaigns:    'Frame insights in terms of acquisition channel performance, audience behaviour differences, and campaign optimisation opportunities.',
   email_customers:     'Frame insights around customer segments, trigger points, and what message would be most relevant to the affected users.',
-  build_business_case: 'Lead with revenue impact. Quantify every problem: sessions affected × conversion rate × average order value = £X opportunity. Include effort/impact ratio.',
+  build_business_case: 'Lead with revenue impact. Quantify every problem: sessions affected × conversion rate × average order value = opportunity size, in the property\'s configured currency (see Currency section below). Include effort/impact ratio.',
 }
 
 const LITERACY_FRAMING: Record<string, string> = {
@@ -46,7 +48,7 @@ export interface GuidedAnalysisData {
 
 // ─── System prompt builder ───────────────────────────────────────────────────
 
-async function buildGuidedSystemPrompt(data: GuidedAnalysisData, projectId: string): Promise<string> {
+async function buildGuidedSystemPrompt(data: GuidedAnalysisData, projectId: string, currencyCode: string): Promise<string> {
   // Load taxonomy for context
   const events = await db.event.findMany({
     where: { projectId },
@@ -103,6 +105,8 @@ ${data.priorKnowledge || 'Nothing specified'}
 ${subQText}${hypothesesText}
 
 ${getCurrentDateContext()}
+
+${getCurrencyContext(currencyCode)}
 
 ## Event taxonomy
 ${taxonomySummary}
@@ -181,7 +185,8 @@ export async function runGuidedAnalysis(
   })
   const propertyId = project?.ga4PropertyId ?? ''
 
-  const systemPrompt = await buildGuidedSystemPrompt(data, data.projectId)
+  const currencyCode = await getPropertyCurrency(accessToken, propertyId)
+  const systemPrompt = await buildGuidedSystemPrompt(data, data.projectId, currencyCode)
   const initialMessage = `Please conduct a full analysis to answer: "${data.coreQuestion}"${
     data.subQuestions.length ? '\n\nSub-questions:\n' + data.subQuestions.map((q) => `- ${q}`).join('\n') : ''
   }\n\nPull all relevant GA4 data and search qualitative research to test each hypothesis. Start with the data — write the report after you have the evidence.`
@@ -262,4 +267,106 @@ export async function runGuidedAnalysis(
       completedAt:   new Date(),
     },
   })
+}
+
+// ─── Drill-down on a selected section of a finished report ───────────────────
+
+/**
+ * A user has highlighted a passage from a completed guided-analysis report and
+ * wants more detail or to see the underlying data behind it. Runs a focused,
+ * tool-using investigation (separate from the main report) and returns markdown.
+ *
+ * Runs synchronously within the request — unlike `runGuidedAnalysis`, this is
+ * short enough not to need the background-task treatment, so it's safe to call
+ * `getGoogleAccessToken()` directly here.
+ */
+export async function runGuidedDrillDown(
+  selection: string,
+  context: { projectId: string; coreQuestion: string; stakeholderLiteracy: string },
+): Promise<string> {
+  const project = await db.project.findUnique({
+    where: { id: context.projectId },
+    select: { ga4PropertyId: true },
+  })
+  const propertyId = project?.ga4PropertyId ?? ''
+
+  const accessToken = await getGoogleAccessToken()
+  if (!accessToken) return '⚠️ No Google access token — please sign out and sign back in.'
+
+  const currencyCode = await getPropertyCurrency(accessToken, propertyId)
+  const literacyText = LITERACY_FRAMING[context.stakeholderLiteracy] ?? LITERACY_FRAMING.medium
+
+  const systemPrompt = `You are a senior digital analytics consultant. A stakeholder is reading a guided analysis report that answers this question:
+
+CORE QUESTION: ${context.coreQuestion}
+
+They've highlighted one section of the report and want more detail or to see the underlying data behind it.
+
+${literacyText}
+${getCurrentDateContext()}
+
+${getCurrencyContext(currencyCode)}
+
+Pull whatever GA4 data is needed to dig into the highlighted section — break it down further (by segment, channel, device, page, time period etc.) and surface the actual numbers behind the claim. Be specific and evidence-based. Use multiple tool calls if needed, then write a focused markdown response (a couple of short paragraphs and/or a small data table — no headings needed).`
+
+  const client = new Anthropic()
+  const conversation: Anthropic.MessageParam[] = [{
+    role: 'user',
+    content: `Here's the section I highlighted from the report:\n\n"${selection}"\n\nPlease dig into this — pull the underlying data and explain what's driving it.`,
+  }]
+
+  let fullResponse = ''
+  const MAX_TURNS = 4
+
+  for (let turn = 0; turn < MAX_TURNS; turn++) {
+    let turnText = ''
+    const toolUses: { id: string; name: string; input: Record<string, unknown> }[] = []
+    let currentToolUse: { id: string; name: string } | null = null
+    let currentInputJson = ''
+    let stopReason: string | null = null
+
+    const stream = await client.messages.stream({
+      model: MODEL,
+      max_tokens: 2048,
+      system: systemPrompt,
+      messages: conversation,
+      tools: TOOLS,
+    })
+
+    for await (const event of stream) {
+      if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
+        currentToolUse = { id: event.content_block.id, name: event.content_block.name }
+        currentInputJson = ''
+      } else if (event.type === 'content_block_delta') {
+        if (event.delta.type === 'text_delta') {
+          turnText += event.delta.text
+        } else if (event.delta.type === 'input_json_delta') {
+          currentInputJson += event.delta.partial_json
+        }
+      } else if (event.type === 'content_block_stop' && currentToolUse) {
+        toolUses.push({ id: currentToolUse.id, name: currentToolUse.name, input: JSON.parse(currentInputJson || '{}') })
+        currentToolUse = null
+      } else if (event.type === 'message_delta') {
+        stopReason = event.delta.stop_reason ?? null
+      }
+    }
+
+    fullResponse += turnText
+
+    const assistantContent: Anthropic.ContentBlockParam[] = []
+    if (turnText) assistantContent.push({ type: 'text', text: turnText })
+    for (const tu of toolUses) assistantContent.push({ type: 'tool_use', id: tu.id, name: tu.name, input: tu.input })
+    if (assistantContent.length) conversation.push({ role: 'assistant', content: assistantContent })
+
+    if (stopReason !== 'tool_use' || toolUses.length === 0) break
+
+    const toolResults: Anthropic.ToolResultBlockParam[] = []
+    for (const tu of toolUses) {
+      const result = await executeTool(tu.name, tu.input, context.projectId, accessToken, propertyId)
+      toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: result })
+    }
+    conversation.push({ role: 'user', content: toolResults })
+  }
+
+  return fullResponse.trim() || 'No additional detail was generated — try selecting a more specific passage.'
 }

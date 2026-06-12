@@ -9,13 +9,14 @@ import Anthropic from '@anthropic-ai/sdk'
 import { db } from '@/lib/db'
 import { getGoogleAccessToken } from '@/lib/token'
 import * as ga4 from '@/lib/ga4Report'
-import { TOOLS, executeTool } from '@/lib/analysisAgent'
+import { getPropertyCurrency } from '@/lib/ga4'
+import { TOOLS, executeTool, getCurrencyContext } from '@/lib/analysisAgent'
 
 const MODEL = 'claude-sonnet-4-5'
 
 // ─── System prompt ────────────────────────────────────────────────────────────
 
-async function buildMonitorPrompt(projectId: string): Promise<string> {
+async function buildMonitorPrompt(projectId: string, currencyCode: string): Promise<string> {
   const [project, events, suppressions, customPrompts, dataLayerDoc] = await Promise.all([
     db.project.findUnique({
       where: { id: projectId },
@@ -125,6 +126,8 @@ async function buildMonitorPrompt(projectId: string): Promise<string> {
 
   return `You are an automated data quality monitoring bot. Your job is to run a weekly health check on the **${project?.name ?? 'this'}** GA4 property and produce a clear, actionable report. You are not a human analyst — always make clear that figures are pulled directly from GA4 and should be independently verified before acting on them.
 
+${getCurrencyContext(currencyCode)}
+
 ## Event taxonomy (${events.length} events)
 These are ALL events that SHOULD be tracked, with their expected parameters:
 ${taxonomyList}
@@ -200,7 +203,8 @@ export async function runQualityMonitor(
     throw new Error('No GA4 property ID set for this project. Add one in GA4 Sync.')
   }
 
-  const systemPrompt  = await buildMonitorPrompt(projectId)
+  const currencyCode  = await getPropertyCurrency(accessToken, propertyId)
+  const systemPrompt  = await buildMonitorPrompt(projectId, currencyCode)
   const initialMessage = 'Please run the full GA4 data quality health check now. Pull all the data you need then write the complete report.'
 
   const client       = new Anthropic()
@@ -293,11 +297,15 @@ export async function runDrillDown(
   const accessToken = await getGoogleAccessToken()
   if (!accessToken) return 'No Google access token available.'
 
+  const currencyCode = await getPropertyCurrency(accessToken, propertyId)
+
   const client = new Anthropic()
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 2048,
-    system: `You are a GA4 data quality analyst. A user has selected a finding from a weekly monitoring report and wants more detail. Investigate thoroughly using GA4 data and give a detailed, actionable response.`,
+    system: `You are a GA4 data quality analyst. A user has selected a finding from a weekly monitoring report and wants more detail. Investigate thoroughly using GA4 data and give a detailed, actionable response.
+
+${getCurrencyContext(currencyCode)}`,
     messages: [{
       role: 'user',
       content: `From the weekly monitoring report, I selected this finding:\n\n"${selection}"\n\nPlease investigate this in more detail. Pull relevant GA4 data and give me specific numbers, root causes, and recommended actions.`,
