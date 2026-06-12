@@ -52,6 +52,18 @@ export default function SelectableReport({ markdown, findings, onFinding, isRunn
     return () => document.removeEventListener('mousedown', dismiss)
   }, [])
 
+  // When printing/exporting to PDF, expand every drill-down so the full
+  // report — including drilled-into detail — ends up in the PDF.
+  useEffect(() => {
+    const expandForPrint = () => {
+      setDrillsVisible(true)
+      setExpanded(new Set(drilldowns.map((f) => f.id)))
+    }
+    window.addEventListener('beforeprint', expandForPrint)
+    return () => window.removeEventListener('beforeprint', expandForPrint)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [findings])
+
   async function act(action: 'suppress' | 'drilldown') {
     if (!tooltip) return
     setLoading(action)
@@ -66,6 +78,7 @@ export default function SelectableReport({ markdown, findings, onFinding, isRunn
       {tooltip && (
         <div
           data-tooltip
+          data-print-hide
           className="fixed z-50 flex items-center gap-1 bg-popover border rounded-lg shadow-lg px-2 py-1.5"
           style={{ left: `${tooltip.x}px`, top: `${tooltip.y}px`, transform: 'translate(-50%, -100%)' }}
         >
@@ -82,7 +95,7 @@ export default function SelectableReport({ markdown, findings, onFinding, isRunn
 
       {/* Legend */}
       {(suppressed.length > 0 || drilldowns.length > 0) && (
-        <div className="mb-3 flex flex-wrap gap-3 text-xs text-muted-foreground bg-muted/30 rounded px-3 py-2">
+        <div data-print-hide className="mb-3 flex flex-wrap gap-3 text-xs text-muted-foreground bg-muted/30 rounded px-3 py-2">
           {suppressed.length > 0 && (
             <span>🚫 <span className="line-through opacity-50">strikethrough</span> = suppressed</span>
           )}
@@ -93,7 +106,7 @@ export default function SelectableReport({ markdown, findings, onFinding, isRunn
       )}
 
       {/* Two-column layout: report + drill-down panel */}
-      <div className={drilldowns.length > 0 ? `grid grid-cols-1 gap-6 items-start ${drillsVisible ? 'xl:grid-cols-[1fr_300px]' : 'xl:grid-cols-[1fr_auto]'}` : ''}>
+      <div className={drilldowns.length > 0 ? `report-grid grid grid-cols-1 gap-6 items-start ${drillsVisible ? 'xl:grid-cols-[1fr_300px]' : 'xl:grid-cols-[1fr_auto]'}` : ''}>
         {/* Report */}
         <div onMouseUp={handleMouseUp} className="select-text min-w-0">
           <MarkdownRenderer
@@ -111,6 +124,7 @@ export default function SelectableReport({ markdown, findings, onFinding, isRunn
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex-1">🔍 Drill-downs</p>
               )}
               <button
+                data-print-hide
                 onClick={() => setDrillsVisible((v) => !v)}
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors px-1 ml-auto"
                 title={drillsVisible ? 'Collapse' : 'Expand drill-downs'}

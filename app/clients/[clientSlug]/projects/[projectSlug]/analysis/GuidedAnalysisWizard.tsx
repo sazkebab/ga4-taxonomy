@@ -292,9 +292,12 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
       <div className="flex-1 overflow-y-auto p-6 max-w-3xl mx-auto w-full">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-lg">Analysis report</h3>
-          <Button variant="outline" size="sm" onClick={() => setStep(6)}>← Edit</Button>
+          <div className="flex items-center gap-2" data-print-hide>
+            <Button variant="outline" size="sm" onClick={() => window.print()}>🖨 Download PDF</Button>
+            <Button variant="outline" size="sm" onClick={() => setStep(6)}>← Edit</Button>
+          </div>
         </div>
-        <p className="text-xs text-muted-foreground mb-3">
+        <p className="text-xs text-muted-foreground mb-3" data-print-hide>
           Highlight any part of the report to ask for more detail or see the underlying data.
         </p>
         <div className="border rounded-lg p-6 bg-background">

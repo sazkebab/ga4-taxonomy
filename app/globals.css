@@ -159,7 +159,19 @@
     font-size: 11pt;
   }
 
-  .max-w-4xl {
+  .max-w-4xl,
+  .max-w-3xl {
     max-width: 100% !important;
+  }
+
+  /* Reports with a drill-down sidebar (SelectableReport) — stack everything
+     into a single column so drill-down detail prints as an appendix after
+     the main report instead of being squeezed into a narrow side column. */
+  .report-grid {
+    display: block !important;
+  }
+
+  .report-grid > * {
+    position: static !important;
   }
 }
