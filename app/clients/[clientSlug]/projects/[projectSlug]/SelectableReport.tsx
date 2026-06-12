@@ -2,30 +2,48 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { MarkdownRenderer } from './MarkdownRenderer'
 
-interface Finding { id: string; selection: string; action: string; response: string; status: string }
+interface Finding {
+  id:           string
+  selection:    string
+  action:       string
+  response:     string
+  status:       string
+  conversation?: string
+  proposedText?: string
+  applied?:      boolean
+}
 
 interface Props {
   markdown:     string
   findings:     Finding[]
-  onFinding:    (selection: string, action: 'suppress' | 'drilldown') => Promise<void>
+  onFinding:    (selection: string, action: 'suppress' | 'drilldown' | 'amend') => Promise<void>
   isRunning:    boolean
   // Some reports (e.g. guided analyses) don't have a "suppress for future runs"
   // concept — set to false to only offer the "Tell me more" drill-down action.
   showSuppress?: boolean
+  // When provided (guided analyses), enables a "✏️ Fix this" action that lets
+  // the user chat with Claude to correct a highlighted passage and apply the
+  // result back into the report.
+  onAmendMessage?:   (findingId: string, message: string) => Promise<void>
+  onApplyAmendment?: (findingId: string, text: string) => Promise<void>
 }
 
 interface Tooltip { text: string; x: number; y: number }
 
-export default function SelectableReport({ markdown, findings, onFinding, isRunning, showSuppress = true }: Props) {
+export default function SelectableReport({ markdown, findings, onFinding, isRunning, showSuppress = true, onAmendMessage, onApplyAmendment }: Props) {
   const [tooltip,       setTooltip]      = useState<Tooltip | null>(null)
-  const [loading,       setLoading]      = useState<'suppress' | 'drilldown' | null>(null)
+  const [loading,       setLoading]      = useState<'suppress' | 'drilldown' | 'amend' | null>(null)
   const [expanded,      setExpanded]     = useState<Set<string>>(new Set())
   const [drillsVisible, setDrillsVisible]= useState(true)
 
   const suppressed  = findings.filter((f) => f.action === 'suppress')
   const drilldowns  = findings.filter((f) => f.action === 'drilldown' && f.status === 'complete')
+  const amendments  = findings.filter((f) => f.action === 'amend')
 
   // Map selection text → drill-down index (1-based) for footnote markers
   const drilldownIndex = new Map(drilldowns.map((f, i) => [f.selection, i + 1]))
@@ -64,7 +82,7 @@ export default function SelectableReport({ markdown, findings, onFinding, isRunn
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [findings])
 
-  async function act(action: 'suppress' | 'drilldown') {
+  async function act(action: 'suppress' | 'drilldown' | 'amend') {
     if (!tooltip) return
     setLoading(action)
     await onFinding(tooltip.text, action)
@@ -87,9 +105,14 @@ export default function SelectableReport({ markdown, findings, onFinding, isRunn
               🚫 {loading === 'suppress' ? 'Saving…' : 'Ignore this'}
             </Button>
           )}
-          <Button size="sm" className="h-7 text-xs" onClick={() => act('drilldown')} disabled={!!loading}>
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => act('drilldown')} disabled={!!loading}>
             🔍 {loading === 'drilldown' ? 'Analysing…' : 'Tell me more'}
           </Button>
+          {onApplyAmendment && (
+            <Button size="sm" className="h-7 text-xs" onClick={() => act('amend')} disabled={!!loading}>
+              ✏️ {loading === 'amend' ? 'Checking…' : 'Fix this'}
+            </Button>
+          )}
         </div>
       )}
 
@@ -149,6 +172,16 @@ export default function SelectableReport({ markdown, findings, onFinding, isRunn
           </div>
         )}
       </div>
+
+      {/* Suggested fixes (amendments) */}
+      {amendments.length > 0 && onAmendMessage && onApplyAmendment && (
+        <div data-print-hide className="mt-6 space-y-3">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">✏️ Suggested fixes</p>
+          {amendments.map((f, i) => (
+            <AmendPanel key={f.id} finding={f} index={i + 1} onMessage={onAmendMessage} onApply={onApplyAmendment} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -192,6 +225,129 @@ function DrillDownPanel({ finding, index, expanded, onToggle, onExpand }: {
           <MarkdownRenderer markdown={finding.response} />
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── AmendPanel ────────────────────────────────────────────────────────────────
+
+interface ConversationTurn { role: 'user' | 'assistant'; content: string }
+
+// The assistant's raw response follows an "EXPLANATION: ... \n REVISED: ..."
+// protocol — for the chat log we only want to show the explanation part.
+function explanationOnly(content: string): string {
+  const match = content.match(/EXPLANATION:\s*([\s\S]*?)\n+REVISED:/i)
+  return match ? match[1].trim() : content
+}
+
+function parseConversation(raw: string | undefined): ConversationTurn[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch { return [] }
+}
+
+function AmendPanel({ finding, index, onMessage, onApply }: {
+  finding:   Finding
+  index:     number
+  onMessage: (findingId: string, message: string) => Promise<void>
+  onApply:   (findingId: string, text: string) => Promise<void>
+}) {
+  const [draft,   setDraft]   = useState(finding.proposedText ?? '')
+  const [input,   setInput]   = useState('')
+  const [sending, setSending] = useState(false)
+  const [applying, setApplying] = useState(false)
+
+  // Keep the draft in sync when the AI proposes new/refined text (after the
+  // initial check, or after a follow-up message), but don't clobber the
+  // user's in-progress edits otherwise. Adjusting state during render (rather
+  // than in an effect) avoids an extra render pass — see
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  const [prevProposedText, setPrevProposedText] = useState(finding.proposedText ?? '')
+  if ((finding.proposedText ?? '') !== prevProposedText) {
+    setPrevProposedText(finding.proposedText ?? '')
+    setDraft(finding.proposedText ?? '')
+  }
+
+  const conversation = parseConversation(finding.conversation)
+
+  async function sendMessage() {
+    const text = input.trim()
+    if (!text || sending) return
+    setSending(true)
+    try {
+      await onMessage(finding.id, text)
+      setInput('')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  async function apply() {
+    if (!draft.trim() || applying) return
+    setApplying(true)
+    try { await onApply(finding.id, draft.trim()) } finally { setApplying(false) }
+  }
+
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      <div className="px-4 py-3 bg-muted/20 flex items-center gap-2">
+        <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary text-primary-foreground text-xs font-bold shrink-0">{index}</span>
+        <span className="text-sm text-muted-foreground italic flex-1 min-w-0 truncate">
+          &ldquo;{finding.selection.slice(0, 100)}{finding.selection.length > 100 ? '…' : ''}&rdquo;
+        </span>
+        {finding.applied && <span className="text-xs font-medium text-green-600 shrink-0">✓ Applied to report</span>}
+      </div>
+
+      <div className="px-4 py-3 border-t space-y-3">
+        {/* Chat history */}
+        {conversation.length > 0 && (
+          <div className="space-y-1.5 max-h-48 overflow-y-auto">
+            {conversation.map((turn, i) => (
+              <div key={i} className={`text-xs rounded px-2.5 py-1.5 ${turn.role === 'user' ? 'bg-primary/5' : 'bg-muted/40'}`}>
+                <span className="font-semibold">{turn.role === 'user' ? 'You: ' : 'Claude: '}</span>
+                {turn.role === 'assistant' ? explanationOnly(turn.content) : turn.content}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Proposed replacement text */}
+        <div className="space-y-1">
+          <Label className="text-xs">Proposed replacement text</Label>
+          <Textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={6}
+            className="text-sm font-mono"
+            disabled={finding.applied}
+            placeholder={finding.status === 'pending' ? 'Checking…' : 'No replacement proposed yet.'}
+          />
+        </div>
+
+        {/* Follow-up chat */}
+        {!finding.applied && (
+          <div className="flex gap-2 items-end">
+            <Input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); sendMessage() } }}
+              placeholder="Ask Claude to refine this further…"
+              disabled={sending}
+              className="text-sm"
+            />
+            <Button size="sm" variant="outline" onClick={sendMessage} disabled={sending || !input.trim()}>
+              {sending ? '…' : 'Send'}
+            </Button>
+          </div>
+        )}
+
+        {/* Apply */}
+        <Button size="sm" onClick={apply} disabled={finding.applied || applying || !draft.trim()}>
+          {finding.applied ? '✓ Applied to report' : applying ? 'Applying…' : 'Apply to report'}
+        </Button>
+      </div>
     </div>
   )
 }

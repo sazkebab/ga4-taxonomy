@@ -11,7 +11,16 @@ import { MarkdownRenderer } from '../MarkdownRenderer'
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Hypothesis { question: string; hypothesis: string }
-interface Finding    { id: string; selection: string; action: string; response: string; status: string }
+interface Finding    {
+  id:           string
+  selection:    string
+  action:       string
+  response:     string
+  status:       string
+  conversation?: string
+  proposedText?: string
+  applied?:      boolean
+}
 
 interface Analysis {
   id:                  string
@@ -93,6 +102,9 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
   const [suggestErr,   setSuggestErr]   = useState<string | null>(null)
   const [runError,     setRunError]     = useState<string | null>(null)
   const [kpiInput,     setKpiInput]     = useState('')
+  const [editingReport, setEditingReport] = useState(false)
+  const [draftMarkdown, setDraftMarkdown] = useState(initial.reportMarkdown)
+  const [savingReport,  setSavingReport]  = useState(false)
 
   const save = useCallback(async (patch: Partial<Analysis>) => {
     setSaving(true)
@@ -187,8 +199,9 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
 
   // Highlight a passage in the finished report and ask Claude to dig into it —
   // pulls fresh GA4 data scoped to that passage and shows the result inline.
-  async function onFinding(selection: string, action: 'suppress' | 'drilldown') {
-    if (action !== 'drilldown') return
+  // 'amend' works the same way but asks Claude to propose a correction instead.
+  async function onFinding(selection: string, action: 'suppress' | 'drilldown' | 'amend') {
+    if (action !== 'drilldown' && action !== 'amend') return
     const res  = await fetch(`${apiBase}/analysis/guided/${data.id}/findings`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -197,6 +210,55 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
     const json = await res.json().catch(() => null)
     if (!res.ok || !json?.finding) return
     setData((prev) => ({ ...prev, findings: [...(prev.findings ?? []), json.finding] }))
+  }
+
+  // Continue the chat on an "amend" finding — sends a follow-up instruction and
+  // gets back a refined explanation + proposed replacement text.
+  async function onAmendMessage(findingId: string, message: string) {
+    const res  = await fetch(`${apiBase}/analysis/guided/${data.id}/findings/${findingId}`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ message }),
+    })
+    const json = await res.json().catch(() => null)
+    if (!res.ok || !json?.finding) return
+    setData((prev) => ({
+      ...prev,
+      findings: (prev.findings ?? []).map((f) => f.id === findingId ? json.finding : f),
+    }))
+  }
+
+  // Apply an "amend" finding's proposed text back into the report, replacing
+  // the originally highlighted passage.
+  async function onApplyAmendment(findingId: string, text: string) {
+    const res  = await fetch(`${apiBase}/analysis/guided/${data.id}/findings/${findingId}/apply`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ text }),
+    })
+    const json = await res.json().catch(() => null)
+    if (!res.ok) return
+    setData((prev) => ({
+      ...prev,
+      reportMarkdown: json.reportMarkdown ?? prev.reportMarkdown,
+      findings: (prev.findings ?? []).map((f) => f.id === findingId ? json.finding : f),
+    }))
+  }
+
+  // Save a manually-edited report (raw markdown rewrite).
+  async function saveReportMarkdown() {
+    setSavingReport(true)
+    try {
+      await fetch(`${apiBase}/analysis/guided/${data.id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ reportMarkdown: draftMarkdown }),
+      })
+      setData((prev) => ({ ...prev, reportMarkdown: draftMarkdown }))
+      setEditingReport(false)
+    } finally {
+      setSavingReport(false)
+    }
   }
 
   // ── Step navigation ──────────────────────────────────────────────────────
@@ -287,27 +349,55 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
     )
   }
 
-  if (step === 7 || data.status === 'complete') {
+  if (step === 7) {
     return (
       <div className="flex-1 overflow-y-auto p-6 max-w-3xl mx-auto w-full">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-lg">Analysis report</h3>
           <div className="flex items-center gap-2" data-print-hide>
-            <Button variant="outline" size="sm" onClick={() => window.print()}>🖨 Download PDF</Button>
-            <Button variant="outline" size="sm" onClick={() => setStep(6)}>← Edit</Button>
+            {editingReport ? (
+              <>
+                <Button size="sm" onClick={saveReportMarkdown} disabled={savingReport}>
+                  {savingReport ? 'Saving…' : '💾 Save'}
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setEditingReport(false)} disabled={savingReport}>
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="outline" size="sm" onClick={() => window.print()}>🖨 Download PDF</Button>
+                <Button variant="outline" size="sm" onClick={() => { setDraftMarkdown(data.reportMarkdown); setEditingReport(true) }}>✏️ Edit report</Button>
+                <Button variant="outline" size="sm" onClick={() => setStep(6)}>← Edit setup</Button>
+              </>
+            )}
           </div>
         </div>
         <p className="text-xs text-muted-foreground mb-3" data-print-hide>
-          Highlight any part of the report to ask for more detail or see the underlying data.
+          {editingReport
+            ? 'Edit the markdown directly, then save to update the report.'
+            : 'Highlight any part of the report to ask for more detail, request a fix, or see the underlying data.'}
         </p>
         <div className="border rounded-lg p-6 bg-background">
-          <SelectableReport
-            markdown={data.reportMarkdown}
-            findings={data.findings ?? []}
-            onFinding={onFinding}
-            isRunning={false}
-            showSuppress={false}
-          />
+          {editingReport ? (
+            <Textarea
+              value={draftMarkdown}
+              onChange={(e) => setDraftMarkdown(e.target.value)}
+              rows={28}
+              className="font-mono text-xs resize-y"
+              autoFocus
+            />
+          ) : (
+            <SelectableReport
+              markdown={data.reportMarkdown}
+              findings={data.findings ?? []}
+              onFinding={onFinding}
+              onAmendMessage={onAmendMessage}
+              onApplyAmendment={onApplyAmendment}
+              isRunning={false}
+              showSuppress={false}
+            />
+          )}
         </div>
       </div>
     )
@@ -315,6 +405,13 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
 
   return (
     <div className="flex-1 overflow-y-auto p-6 max-w-2xl mx-auto w-full">
+      {data.status === 'complete' && (
+        <div className="mb-4">
+          <Button variant="ghost" size="sm" className="-ml-2 text-xs" onClick={() => setStep(7)}>
+            ← Back to report
+          </Button>
+        </div>
+      )}
       {/* Progress */}
       <div className="flex items-center gap-1.5 mb-8">
         {[1,2,3,4,5,6].map((s) => (
@@ -517,7 +614,7 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
             <Button onClick={next} disabled={!canAdvance}>Next →</Button>
           ) : (
             <Button onClick={runAnalysis} disabled={data.status === 'running' || !data.coreQuestion}>
-              {data.status === 'running' ? 'Running…' : '🔬 Run analysis'}
+              {data.status === 'running' ? 'Running…' : data.status === 'complete' ? '🔬 Re-run analysis' : '🔬 Run analysis'}
             </Button>
           )}
         </div>

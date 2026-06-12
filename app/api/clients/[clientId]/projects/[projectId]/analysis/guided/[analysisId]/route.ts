@@ -15,6 +15,7 @@ const patchSchema = z.object({
   priorKnowledge:       z.string().optional(),
   subQuestions:         z.array(z.string()).optional(),
   hypotheses:           z.array(z.object({ question: z.string(), hypothesis: z.string() })).optional(),
+  reportMarkdown:       z.string().optional(),
 })
 
 async function getVerified(analysisId: string, projectId: string, userId: string) {

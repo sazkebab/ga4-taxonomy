@@ -3,11 +3,11 @@ import { z } from 'zod'
 import { db } from '@/lib/db'
 import { auth } from '@/auth'
 import { requireProjectAccess } from '@/lib/access'
-import { runGuidedDrillDown } from '@/lib/guidedAnalysisAgent'
+import { runGuidedDrillDown, runGuidedAmendment, type AmendTurn } from '@/lib/guidedAnalysisAgent'
 
 const schema = z.object({
   selection: z.string().min(1),
-  action:    z.literal('drilldown'),
+  action:    z.enum(['drilldown', 'amend']),
 })
 
 export async function POST(
@@ -32,6 +32,28 @@ export async function POST(
   const finding = await db.guidedAnalysisFinding.create({
     data: { analysisId, selection, action, status: 'pending' },
   })
+
+  if (action === 'amend') {
+    const result = await runGuidedAmendment(selection, [], null, {
+      projectId:           analysis.projectId,
+      coreQuestion:        analysis.coreQuestion,
+      stakeholderLiteracy: analysis.stakeholderLiteracy,
+    })
+    const conversation: AmendTurn[] = [
+      { role: 'user', content: result.userMessage },
+      { role: 'assistant', content: result.rawResponse },
+    ]
+    const updated = await db.guidedAnalysisFinding.update({
+      where: { id: finding.id },
+      data: {
+        response:     result.explanation,
+        proposedText: result.proposedText,
+        conversation: JSON.stringify(conversation),
+        status:       'complete',
+      },
+    })
+    return NextResponse.json({ finding: updated })
+  }
 
   const response = await runGuidedDrillDown(selection, {
     projectId:           analysis.projectId,

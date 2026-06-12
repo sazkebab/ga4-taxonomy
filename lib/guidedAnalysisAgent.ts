@@ -121,7 +121,9 @@ YOUR JOB:
    - Top 3 prioritised recommendations with commercial impact estimates
    - Suggested next steps
 
-Pull all relevant data before writing your report. Use multiple tool calls if needed.`
+Pull all relevant data before writing your report. Use multiple tool calls if needed.
+
+IMPORTANT: Never sign off or attribute the report to "Senior Digital Analytics Consultant" or any other human-sounding job title — you are an AI, not a person on the team. If you include any "Prepared by" / author / attribution line at all, it must read exactly "Report Prepared By: AI".`
 }
 
 // ─── Suggest sub-questions ───────────────────────────────────────────────────
@@ -307,7 +309,9 @@ ${getCurrentDateContext()}
 
 ${getCurrencyContext(currencyCode)}
 
-Pull whatever GA4 data is needed to dig into the highlighted section — break it down further (by segment, channel, device, page, time period etc.) and surface the actual numbers behind the claim. Be specific and evidence-based. Use multiple tool calls if needed, then write a focused markdown response (a couple of short paragraphs and/or a small data table — no headings needed).`
+Pull whatever GA4 data is needed to dig into the highlighted section — break it down further (by segment, channel, device, page, time period etc.) and surface the actual numbers behind the claim. Be specific and evidence-based. Use multiple tool calls if needed, then write a focused markdown response (a couple of short paragraphs and/or a small data table — no headings needed).
+
+Never refer to yourself as "Senior Digital Analytics Consultant" or any other human-sounding job title — you are an AI. If your response includes any "Prepared by" / author / attribution line at all, it must read exactly "Report Prepared By: AI".`
 
   const client = new Anthropic()
   const conversation: Anthropic.MessageParam[] = [{
@@ -369,4 +373,139 @@ Pull whatever GA4 data is needed to dig into the highlighted section — break i
   }
 
   return fullResponse.trim() || 'No additional detail was generated — try selecting a more specific passage.'
+}
+
+// ─── Chat-based amendment of a selected section of a finished report ─────────
+
+export interface AmendTurn { role: 'user' | 'assistant'; content: string }
+
+const DEFAULT_AMEND_INSTRUCTION = 'Please check this section for accuracy against the real GA4 data — especially any figures, percentages, dates, and currency — and propose a corrected version if anything is wrong. If it already looks correct, say so and repeat it unchanged in the REVISED section.'
+
+/**
+ * A user has highlighted a passage from a completed guided-analysis report that
+ * they believe contains an error (wrong figures, wrong currency, claims that
+ * don't match the underlying data, etc.) and wants Claude to investigate and
+ * propose a corrected version of that passage. Supports an ongoing back-and-forth
+ * — pass the prior `history` plus a new `userMessage` to refine the proposal.
+ *
+ * Runs synchronously within the request, like `runGuidedDrillDown`.
+ */
+export async function runGuidedAmendment(
+  selection: string,
+  history: AmendTurn[],
+  userMessage: string | null,
+  context: { projectId: string; coreQuestion: string; stakeholderLiteracy: string },
+): Promise<{ explanation: string; proposedText: string; rawResponse: string; userMessage: string }> {
+  const resolvedUserMessage = userMessage ?? DEFAULT_AMEND_INSTRUCTION
+
+  const project = await db.project.findUnique({
+    where: { id: context.projectId },
+    select: { ga4PropertyId: true },
+  })
+  const propertyId = project?.ga4PropertyId ?? ''
+
+  const accessToken = await getGoogleAccessToken()
+  if (!accessToken) {
+    return {
+      explanation:  '⚠️ No Google access token — please sign out and sign back in.',
+      proposedText: '',
+      rawResponse:  '',
+      userMessage:  resolvedUserMessage,
+    }
+  }
+
+  const currencyCode = await getPropertyCurrency(accessToken, propertyId)
+  const literacyText = LITERACY_FRAMING[context.stakeholderLiteracy] ?? LITERACY_FRAMING.medium
+
+  const systemPrompt = `You are a senior digital analytics consultant helping correct a section of a guided analysis report that answers this question:
+
+CORE QUESTION: ${context.coreQuestion}
+
+THE HIGHLIGHTED SECTION TO CHECK/CORRECT:
+"""
+${selection}
+"""
+
+${literacyText}
+${getCurrentDateContext()}
+
+${getCurrencyContext(currencyCode)}
+
+Investigate using the GA4 tools as needed to verify the figures, percentages, dates, currency and claims in the highlighted section against real data. Use multiple tool calls if needed.
+
+Respond using EXACTLY this format, with nothing before or after:
+
+EXPLANATION:
+<1-3 sentences: what you checked, and what (if anything) was wrong and what you changed. If the user asks a follow-up or pushes back, address that here too.>
+
+REVISED:
+<the full corrected replacement text for the highlighted section, written in the same markdown style and similar length/structure as the original — this will directly replace the highlighted text in the report verbatim>
+
+Never refer to yourself as "Senior Digital Analytics Consultant" or any other human-sounding job title — you are an AI. If the revised text includes any "Prepared by" / author / attribution line at all, it must read exactly "Report Prepared By: AI".`
+
+  const client = new Anthropic()
+  const conversation: Anthropic.MessageParam[] = [
+    ...history.map((h): Anthropic.MessageParam => ({ role: h.role, content: h.content })),
+    { role: 'user', content: resolvedUserMessage },
+  ]
+
+  let fullResponse = ''
+  const MAX_TURNS = 4
+
+  for (let turn = 0; turn < MAX_TURNS; turn++) {
+    let turnText = ''
+    const toolUses: { id: string; name: string; input: Record<string, unknown> }[] = []
+    let currentToolUse: { id: string; name: string } | null = null
+    let currentInputJson = ''
+    let stopReason: string | null = null
+
+    const stream = await client.messages.stream({
+      model: MODEL,
+      max_tokens: 2048,
+      system: systemPrompt,
+      messages: conversation,
+      tools: TOOLS,
+    })
+
+    for await (const event of stream) {
+      if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
+        currentToolUse = { id: event.content_block.id, name: event.content_block.name }
+        currentInputJson = ''
+      } else if (event.type === 'content_block_delta') {
+        if (event.delta.type === 'text_delta') {
+          turnText += event.delta.text
+        } else if (event.delta.type === 'input_json_delta') {
+          currentInputJson += event.delta.partial_json
+        }
+      } else if (event.type === 'content_block_stop' && currentToolUse) {
+        toolUses.push({ id: currentToolUse.id, name: currentToolUse.name, input: JSON.parse(currentInputJson || '{}') })
+        currentToolUse = null
+      } else if (event.type === 'message_delta') {
+        stopReason = event.delta.stop_reason ?? null
+      }
+    }
+
+    fullResponse += turnText
+
+    const assistantContent: Anthropic.ContentBlockParam[] = []
+    if (turnText) assistantContent.push({ type: 'text', text: turnText })
+    for (const tu of toolUses) assistantContent.push({ type: 'tool_use', id: tu.id, name: tu.name, input: tu.input })
+    if (assistantContent.length) conversation.push({ role: 'assistant', content: assistantContent })
+
+    if (stopReason !== 'tool_use' || toolUses.length === 0) break
+
+    const toolResults: Anthropic.ToolResultBlockParam[] = []
+    for (const tu of toolUses) {
+      const result = await executeTool(tu.name, tu.input, context.projectId, accessToken, propertyId)
+      toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: result })
+    }
+    conversation.push({ role: 'user', content: toolResults })
+  }
+
+  const trimmed = fullResponse.trim()
+  const match   = trimmed.match(/EXPLANATION:\s*([\s\S]*?)\n+REVISED:\s*([\s\S]*)/i)
+  const explanation  = match ? match[1].trim() : (trimmed || 'No response was generated — please try again.')
+  const proposedText = match ? match[2].trim() : ''
+
+  return { explanation, proposedText, rawResponse: trimmed, userMessage: resolvedUserMessage }
 }

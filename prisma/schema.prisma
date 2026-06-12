@@ -289,14 +289,17 @@ model GuidedAnalysis {
 }
 
 model GuidedAnalysisFinding {
-  id         String         @id @default(cuid())
-  analysisId String
-  selection  String
-  action     String         // "drilldown" — the only finding action supported for guided analyses
-  response   String         @default("")
-  status     String         @default("pending")  // pending | complete | error
-  createdAt  DateTime       @default(now())
-  analysis   GuidedAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  id           String         @id @default(cuid())
+  analysisId   String
+  selection    String
+  action       String         // "drilldown" | "amend"
+  response     String         @default("")
+  status       String         @default("pending")  // pending | complete | error
+  conversation String         @default("[]")        // JSON array of {role, content} — "amend" findings only
+  proposedText String         @default("")          // latest AI-proposed replacement text — "amend" findings only
+  applied      Boolean        @default(false)       // whether proposedText has been applied to the report
+  createdAt    DateTime       @default(now())
+  analysis     GuidedAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
 }
 
 model AnalysisDocument {

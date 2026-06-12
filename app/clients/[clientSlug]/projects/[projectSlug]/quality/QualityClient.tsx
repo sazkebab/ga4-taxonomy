@@ -147,7 +147,8 @@ export default function QualityClient({
     }
   }
 
-  async function onFinding(selection: string, action: 'suppress' | 'drilldown') {
+  async function onFinding(selection: string, action: 'suppress' | 'drilldown' | 'amend') {
+    if (action === 'amend') return // not supported for quality reports
     const res  = await fetch(`${apiBase}/quality/reports/${report!.id}/findings`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },

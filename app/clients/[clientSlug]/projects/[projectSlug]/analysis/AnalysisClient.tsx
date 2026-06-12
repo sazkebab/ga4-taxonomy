@@ -11,7 +11,16 @@ interface Chat           { id: string; title: string; updatedAt: Date }
 interface Document       { id: string; title: string; sourceType: string; source: string; createdAt: Date; content: string }
 interface GuidedSummary  { id: string; status: string; coreQuestion: string; useCase: string; updatedAt: Date }
 interface Message        { id: string; role: string; content: string; toolCalls: { name: string; summary: string }[]; createdAt: Date }
-interface Finding        { id: string; selection: string; action: string; response: string; status: string }
+interface Finding        {
+  id:           string
+  selection:    string
+  action:       string
+  response:     string
+  status:       string
+  conversation?: string
+  proposedText?: string
+  applied?:      boolean
+}
 interface GuidedAnalysis {
   id: string; status: string; coreQuestion: string; useCase: string
   stakeholderName: string; stakeholderLiteracy: string
