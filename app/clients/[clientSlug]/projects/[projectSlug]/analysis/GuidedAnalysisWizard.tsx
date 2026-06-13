@@ -378,6 +378,55 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
             ? 'Edit the markdown directly, then save to update the report.'
             : 'Highlight any part of the report to ask for more detail, request a fix, or see the underlying data.'}
         </p>
+
+        {/* Analysis brief — recap of the inputs given during setup */}
+        <details open className="mb-4 border rounded-lg bg-muted/20">
+          <summary className="px-4 py-2.5 cursor-pointer text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            Analysis brief
+          </summary>
+          <div className="px-4 pb-4 pt-1 border-t space-y-2 text-sm">
+            <p><span className="font-medium">Core question:</span> {data.coreQuestion}</p>
+            {selectedUseCases.length > 0 && (
+              <p>
+                <span className="font-medium">Use case{selectedUseCases.length > 1 ? 's' : ''}:</span>{' '}
+                {selectedUseCases.map((v) => USE_CASES.find((u) => u.value === v)?.label ?? v).join(', ')}
+              </p>
+            )}
+            {(data.stakeholderName || data.stakeholderLiteracy) && (
+              <p>
+                <span className="font-medium">Stakeholder:</span>{' '}
+                {data.stakeholderName || '—'}
+                {data.stakeholderLiteracy && ` (${LITERACY_LEVELS.find((l) => l.value === data.stakeholderLiteracy)?.label ?? data.stakeholderLiteracy} data literacy)`}
+              </p>
+            )}
+            {data.keyKpis.length > 0 && (
+              <p><span className="font-medium">Key KPIs:</span> {data.keyKpis.join(', ')}</p>
+            )}
+            {data.insightDestination && (
+              <p><span className="font-medium">Insight destination:</span> {data.insightDestination}</p>
+            )}
+            {data.preferredOutputStyle && (
+              <p><span className="font-medium">Preferred style:</span> {data.preferredOutputStyle}</p>
+            )}
+            {data.priorKnowledge && (
+              <p><span className="font-medium">Prior knowledge:</span> {data.priorKnowledge}</p>
+            )}
+            {data.hypotheses.some((h) => h.question.trim()) && (
+              <div>
+                <p className="font-medium">Questions investigated:</p>
+                <ul className="list-disc list-inside ml-1 mt-1 space-y-0.5">
+                  {data.hypotheses.filter((h) => h.question.trim()).map((h, i) => (
+                    <li key={i}>
+                      {h.question}
+                      {h.hypothesis && <span className="text-muted-foreground"> — hypothesis: {h.hypothesis}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </details>
+
         <div className="border rounded-lg p-6 bg-background">
           {editingReport ? (
             <Textarea
