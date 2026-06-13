@@ -31,11 +31,13 @@ interface Props {
   // result back into the report.
   onAmendMessage?:   (findingId: string, message: string) => Promise<void>
   onApplyAmendment?: (findingId: string, text: string) => Promise<void>
+  // When provided, drill-down and amendment panels get a ✕ to delete them.
+  onRemoveFinding?:  (findingId: string) => Promise<void>
 }
 
 interface Tooltip { text: string; x: number; y: number }
 
-export default function SelectableReport({ markdown, findings, onFinding, isRunning, showSuppress = true, onAmendMessage, onApplyAmendment }: Props) {
+export default function SelectableReport({ markdown, findings, onFinding, isRunning, showSuppress = true, onAmendMessage, onApplyAmendment, onRemoveFinding }: Props) {
   const [tooltip,       setTooltip]      = useState<Tooltip | null>(null)
   const [loading,       setLoading]      = useState<'suppress' | 'drilldown' | 'amend' | null>(null)
   const [expanded,      setExpanded]     = useState<Set<string>>(new Set())
@@ -167,6 +169,7 @@ export default function SelectableReport({ markdown, findings, onFinding, isRunn
                   return next
                 })}
                 onExpand={() => setExpanded((prev) => new Set([...prev, f.id]))}
+                onRemove={onRemoveFinding ? () => onRemoveFinding(f.id) : undefined}
               />
             ))}
           </div>
@@ -178,7 +181,14 @@ export default function SelectableReport({ markdown, findings, onFinding, isRunn
         <div data-print-hide className="mt-6 space-y-3">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">✏️ Suggested fixes</p>
           {amendments.map((f, i) => (
-            <AmendPanel key={f.id} finding={f} index={i + 1} onMessage={onAmendMessage} onApply={onApplyAmendment} />
+            <AmendPanel
+              key={f.id}
+              finding={f}
+              index={i + 1}
+              onMessage={onAmendMessage}
+              onApply={onApplyAmendment}
+              onRemove={onRemoveFinding ? () => onRemoveFinding(f.id) : undefined}
+            />
           ))}
         </div>
       )}
@@ -188,12 +198,13 @@ export default function SelectableReport({ markdown, findings, onFinding, isRunn
 
 // ─── DrillDownPanel ──────────────────────────────────────────────────────────
 
-function DrillDownPanel({ finding, index, expanded, onToggle, onExpand }: {
+function DrillDownPanel({ finding, index, expanded, onToggle, onExpand, onRemove }: {
   finding:  Finding
   index:    number
   expanded: boolean
   onToggle: () => void
   onExpand: () => void
+  onRemove?: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
 
@@ -210,16 +221,28 @@ function DrillDownPanel({ finding, index, expanded, onToggle, onExpand }: {
 
   return (
     <div ref={ref} id={`drilldown-${index}`} className="border rounded-lg overflow-hidden scroll-mt-4">
-      <button
-        className="w-full text-left px-4 py-3 bg-muted/20 hover:bg-muted/40 transition-colors"
-        onClick={onToggle}
-      >
-        <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary text-primary-foreground text-xs font-bold mr-2">{index}</span>
-        <span className="text-sm text-muted-foreground italic">
-          &ldquo;{finding.selection.slice(0, 100)}{finding.selection.length > 100 ? '…' : ''}&rdquo;
-        </span>
-        <span className="ml-2 text-xs text-muted-foreground">{expanded ? '▲' : '▼'}</span>
-      </button>
+      <div className="flex items-stretch bg-muted/20">
+        <button
+          className="flex-1 text-left px-4 py-3 hover:bg-muted/40 transition-colors"
+          onClick={onToggle}
+        >
+          <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary text-primary-foreground text-xs font-bold mr-2">{index}</span>
+          <span className="text-sm text-muted-foreground italic">
+            &ldquo;{finding.selection.slice(0, 100)}{finding.selection.length > 100 ? '…' : ''}&rdquo;
+          </span>
+          <span className="ml-2 text-xs text-muted-foreground">{expanded ? '▲' : '▼'}</span>
+        </button>
+        {onRemove && (
+          <button
+            data-print-hide
+            onClick={onRemove}
+            className="px-3 text-muted-foreground hover:text-destructive transition-colors"
+            title="Remove drill-down"
+          >
+            ✕
+          </button>
+        )}
+      </div>
       {expanded && (
         <div className="px-4 py-3 border-t">
           <MarkdownRenderer markdown={finding.response} />
@@ -248,11 +271,12 @@ function parseConversation(raw: string | undefined): ConversationTurn[] {
   } catch { return [] }
 }
 
-function AmendPanel({ finding, index, onMessage, onApply }: {
+function AmendPanel({ finding, index, onMessage, onApply, onRemove }: {
   finding:   Finding
   index:     number
   onMessage: (findingId: string, message: string) => Promise<void>
   onApply:   (findingId: string, text: string) => Promise<void>
+  onRemove?: () => void
 }) {
   const [draft,   setDraft]   = useState(finding.proposedText ?? '')
   const [input,   setInput]   = useState('')
@@ -298,6 +322,15 @@ function AmendPanel({ finding, index, onMessage, onApply }: {
           &ldquo;{finding.selection.slice(0, 100)}{finding.selection.length > 100 ? '…' : ''}&rdquo;
         </span>
         {finding.applied && <span className="text-xs font-medium text-green-600 shrink-0">✓ Applied to report</span>}
+        {onRemove && (
+          <button
+            onClick={onRemove}
+            className="text-muted-foreground hover:text-destructive transition-colors shrink-0 px-1"
+            title="Remove suggested fix"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       <div className="px-4 py-3 border-t space-y-3">

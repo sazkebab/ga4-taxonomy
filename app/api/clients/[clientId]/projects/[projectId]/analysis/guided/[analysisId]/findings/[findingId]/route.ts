@@ -62,3 +62,27 @@ export async function POST(
 
   return NextResponse.json({ finding: updated })
 }
+
+// Remove a finding (drill-down or amendment) from the report. The report
+// markdown itself is untouched — this only deletes the side panel.
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ projectId: string; analysisId: string; findingId: string }> },
+) {
+  const session = await auth()
+  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { projectId, analysisId, findingId } = await params
+  try { await requireProjectAccess(session.user.id, projectId) }
+  catch { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
+
+  const analysis = await db.guidedAnalysis.findUnique({ where: { id: analysisId } })
+  if (!analysis || analysis.projectId !== projectId) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const finding = await db.guidedAnalysisFinding.findUnique({ where: { id: findingId } })
+  if (!finding || finding.analysisId !== analysisId) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
+  await db.guidedAnalysisFinding.delete({ where: { id: findingId } })
+  return NextResponse.json({ ok: true })
+}

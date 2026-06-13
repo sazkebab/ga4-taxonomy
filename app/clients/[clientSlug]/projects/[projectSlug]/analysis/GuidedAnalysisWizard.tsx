@@ -245,6 +245,14 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
     }))
   }
 
+  // Delete a drill-down or amendment panel. The report markdown is untouched.
+  async function onRemoveFinding(findingId: string) {
+    if (!confirm('Remove this?')) return
+    const res = await fetch(`${apiBase}/analysis/guided/${data.id}/findings/${findingId}`, { method: 'DELETE' })
+    if (!res.ok) return
+    setData((prev) => ({ ...prev, findings: (prev.findings ?? []).filter((f) => f.id !== findingId) }))
+  }
+
   // Save a manually-edited report (raw markdown rewrite).
   async function saveReportMarkdown() {
     setSavingReport(true)
@@ -443,6 +451,7 @@ export default function GuidedAnalysisWizard({ analysis: initial, apiBase, onCom
               onFinding={onFinding}
               onAmendMessage={onAmendMessage}
               onApplyAmendment={onApplyAmendment}
+              onRemoveFinding={onRemoveFinding}
               isRunning={false}
               showSuppress={false}
             />
