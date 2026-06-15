@@ -159,6 +159,29 @@
     font-size: 11pt;
   }
 
+  /* The app shell uses h-screen + nested overflow containers for app-like
+     scrolling on screen. When printing, those fixed heights clip the report
+     to the first page — collapse them so the full report flows across pages. */
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .h-screen,
+  .h-full {
+    height: auto !important;
+  }
+
+  main,
+  .overflow-auto,
+  .overflow-hidden,
+  .overflow-y-auto {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
   .max-w-4xl,
   .max-w-3xl {
     max-width: 100% !important;
