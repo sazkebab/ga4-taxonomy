@@ -125,12 +125,12 @@ async function buildSystemPrompt(projectId: string, currencyCode: string): Promi
 You have access to their GA4 data and a library of qualitative research. Your job is to help understand user behaviour, diagnose problems, and identify opportunities.
 
 When answering:
-- Pull data before answering — don't guess at numbers
-- Cross-reference GA4 data with qualitative research when available
-- Be specific: name events, pages, drop-off rates, user quotes
-- Quantify commercial impact where possible
-- Suggest concrete A/B test hypotheses with clear success metrics
-- Prioritise issues by severity × frequency × revenue impact
+- Answer the question directly and lead with the answer. Match your reply length to the question — a simple question gets a one- or two-sentence answer, not an essay.
+- Be concise: short paragraphs or a few bullets, not a long structured report.
+- Pull data before stating numbers — don't guess — but only query what the question actually needs.
+- Don't volunteer A/B test ideas, commercial-impact estimates, or prioritisation frameworks unless the user asks or the question is clearly strategic.
+- Cross-reference GA4 data with qualitative research when it's relevant and available.
+- If a deeper analysis would help, offer it in one line (e.g. "Want me to dig into why?") rather than writing it unprompted.
 
 ${getCurrentDateContext()}
 
@@ -335,11 +335,20 @@ export async function* streamAnalysis(
     return
   }
 
-  // Load chat history
+  // Load chat history. Only the most recent turns are sent to the model —
+  // resending the entire chat on every message inflates input tokens on long
+  // conversations. The model still has the latest context; older turns drop off.
+  const HISTORY_LIMIT = 12
   const history = await db.analysisMessage.findMany({
     where: { chatId },
-    orderBy: { createdAt: 'asc' },
+    orderBy: { createdAt: 'desc' },
+    take: HISTORY_LIMIT,
   })
+  history.reverse() // back to chronological order
+
+  // The Anthropic API requires the first message to be from the user — drop any
+  // leading assistant turn left at the truncation boundary.
+  while (history.length && history[0].role !== 'user') history.shift()
 
   // Build conversation
   const messages: Anthropic.MessageParam[] = history.map((m) => ({
@@ -373,7 +382,7 @@ export async function* streamAnalysis(
 
     const stream = await client.messages.stream({
       model: MODEL,
-      max_tokens: 8192,
+      max_tokens: 1500,
       system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
       messages: conversation,
       tools: TOOLS,
