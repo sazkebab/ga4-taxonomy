@@ -13,7 +13,6 @@ const SECTIONS = [
   { id: 'import',      label: 'Import' },
   { id: 'analysis',    label: 'Analysis' },
   { id: 'quality',     label: 'Data quality' },
-  { id: 'journeys',    label: 'Journeys' },
   { id: 'admin',       label: 'Admin' },
 ]
 
@@ -188,6 +187,11 @@ export default function HelpPage() {
             <SubSection title="Syncing key events">
               <P>The GA4 Sync page also lets you push key event status from the taxonomy into GA4 directly, marking the correct events as conversions.</P>
             </SubSection>
+
+            <SubSection title="Finding undocumented events">
+              <P>On the GA4 Sync page, the <strong>GA4 Events comparison</strong> panel lists every event firing in GA4 (last 90 days) and compares it against your documented events. Click <strong>Fetch GA4 events</strong> to run the comparison — events are split into <strong>documented</strong> and <strong>undocumented</strong>.</P>
+              <P>Undocumented events appear with checkboxes, all ticked by default. Untick the ones you want to skip, or use <strong>Select all</strong> to toggle the whole list, then click <strong>Add N as drafts</strong> to create those events in the project in one go. This is the quickest way to bring real, firing events into your taxonomy.</P>
+            </SubSection>
           </Section>
 
           {/* Dev Docs */}
@@ -282,6 +286,22 @@ export default function HelpPage() {
               </ol>
               <P className="mt-2">The output is a structured report with: executive summary, a verdict per hypothesis (CONFIRMED / DISPROVED / INCONCLUSIVE) with evidence, top 3 recommendations with commercial impact estimates, and suggested next steps.</P>
               <P>The report format and language adapt to the use case and stakeholder data literacy you set in step 2–3.</P>
+              <P>A collapsible <strong>Analysis brief</strong> at the top of the finished report recaps the inputs you gave during setup (core question, use cases, stakeholder, KPIs, prior knowledge, and hypotheses) so the report is self-explanatory.</P>
+            </SubSection>
+
+            <SubSection title="Working with the finished report">
+              <P>The report is interactive — highlight any passage to get three options:</P>
+              <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-2">
+                <li><strong>🔍 Tell me more</strong> — Claude drills into that passage with fresh GA4 data and shows the detail in a side panel</li>
+                <li><strong>✏️ Fix this</strong> — Claude checks the passage against real GA4 data and proposes a correction. You can refine it with follow-up chat, then <strong>Apply to report</strong> to replace the original text</li>
+              </ul>
+              <P className="mt-2">Drill-down and suggested-fix panels each have a <strong>✕</strong> to remove them (the report text itself is left untouched).</P>
+              <P>The buttons at the top of the report let you:</P>
+              <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-2">
+                <li><strong>🖨 Download PDF</strong> — opens the print dialog; the full report (including expanded drill-downs) is included</li>
+                <li><strong>✏️ Edit report</strong> — rewrite the report markdown directly, then Save</li>
+                <li><strong>← Edit setup</strong> — go back into the wizard to change inputs and re-run the analysis</li>
+              </ul>
             </SubSection>
 
             <SubSection title="📚 Research library">
@@ -358,57 +378,6 @@ export default function HelpPage() {
                 {`# Run every Monday at 8am (replace with your project's API URL)
 0 8 * * 1 curl -X POST https://datadocs.meliorum.com.au/api/clients/CLIENT_ID/projects/PROJECT_ID/quality/reports`}
               </pre>
-            </SubSection>
-          </Section>
-
-          {/* Journeys */}
-          <Section id="journeys" title="Journeys">
-            <P>
-              The Journey map visualises how users navigate through the site as a sunburst chart, using GA4's <code className="text-xs bg-muted px-1 py-0.5 rounded">pageReferrer</code> and <code className="text-xs bg-muted px-1 py-0.5 rounded">pagePath</code> dimensions. No BigQuery required.
-            </P>
-
-            <SubSection title="Reading the chart">
-              <P>Each ring of the sunburst represents one step deeper in the journey. The innermost ring shows where users entered the site (landing pages). Moving outward shows where they navigated next. The size of each segment represents the proportion of users who took that path.</P>
-              <P>Hover over a segment to see the page name, user count, and percentage. Click a segment to see its detail in the centre.</P>
-            </SubSection>
-
-            <SubSection title="Page groups">
-              <P>By default the map shows raw URLs. Switch to <strong>⚙️ Page groups</strong> to define rules that collapse similar URLs into named segments — for example:</P>
-              <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-2">
-                <li><code className="text-xs bg-muted px-1 rounded">/</code> → Homepage</li>
-                <li><code className="text-xs bg-muted px-1 rounded">/products/*</code> → Products</li>
-                <li><code className="text-xs bg-muted px-1 rounded">/cart</code> → Cart</li>
-              </ul>
-              <P className="mt-2">Rules are matched in order — the first matching rule wins. Groups are saved per project and persist across sessions.</P>
-            </SubSection>
-
-            <SubSection title="Controls">
-              <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-2">
-                <li><strong>Date range</strong> — last 7, 30, or 90 days</li>
-                <li><strong>Depth</strong> — how many journey steps to show (2–8)</li>
-                <li><strong>Min users</strong> — prune branches with fewer than this many users (reduces noise)</li>
-              </ul>
-            </SubSection>
-
-            <SubSection title="Setting up BigQuery for full journey paths (recommended)">
-              <P>GA4's standard Data API only provides 1-hop transitions. For true multi-step journeys, connect a BigQuery table:</P>
-              <ol className="list-decimal list-inside space-y-1.5 text-sm text-muted-foreground ml-2">
-                <li>In GA4 Admin → BigQuery linking, enable the BigQuery export for your property</li>
-                <li>Wait for the first export to arrive (usually within 24 hours)</li>
-                <li>Open BigQuery and run the SQL template found in <strong>🗺️ Journeys → ⚙️ Page groups → Data source</strong> — replace the dataset name with your own</li>
-                <li>Copy the resulting table path (e.g. <code>my-project.analytics_123456.ga4_journey</code>)</li>
-                <li>Paste it into the BigQuery table field in Journey settings and save</li>
-                <li>Re-authorise Google from the main menu (the app needs BigQuery read scope added to your token)</li>
-              </ol>
-              <P className="mt-2">The SQL creates a table with columns <code>page_1</code> through <code>page_8</code> and <code>users</code> — each row is a unique path through the site. Re-run the SQL whenever you want to refresh the data.</P>
-            </SubSection>
-
-            <SubSection title="Limitations (without BigQuery)">
-              <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-2">
-                <li>Without BigQuery, the map uses GA4's pageReferrer dimension — limited to 1 step</li>
-                <li>SPA navigation without full page reloads may undercount internal transitions</li>
-                <li>Requires a GA4 property ID to be set in GA4 Sync</li>
-              </ul>
             </SubSection>
           </Section>
 
